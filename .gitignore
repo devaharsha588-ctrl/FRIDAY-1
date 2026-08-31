@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.friday/
+coverage/
+*.log
+*.local
+playwright-report/
+test-results/
+

@@ -1,0 +1,40 @@
+{
+  "name": "friday-desktop-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FRIDAY: a website-style AI interface backed by a controlled local desktop agent.",
+  "scripts": {
+    "dev": "concurrently -k -n agent,backend,web -c cyan,magenta,green \"npm:dev:agent\" \"npm:dev:backend\" \"npm:dev:web\"",
+    "dev:agent": "tsx watch src/local-agent/index.ts",
+    "dev:backend": "tsx watch src/backend/index.ts",
+    "dev:web": "vite --host 127.0.0.1 --port 5173",
+    "start:agent": "tsx src/local-agent/index.ts",
+    "start:backend": "tsx src/backend/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "lucide-react": "^1.37.0",
+    "nanoid": "^6.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}
