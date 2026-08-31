@@ -16,6 +16,27 @@ import {
   switchWindow,
   typeText
 } from './adapters/windows-adapter';
+import {
+  BrowserAdapter,
+  createBrowserAdapter
+} from './adapters/browser-adapter';
+import {
+  checkProcessExists,
+  findUiElement,
+  getWindowState,
+  clickUiElement,
+  waitForWindow
+} from './adapters/ui-automation';
+
+// Lazily initialized browser adapter
+let browserAdapter: BrowserAdapter | null = null;
+
+function getBrowserAdapter(env: AgentEnv): BrowserAdapter {
+  if (!browserAdapter) {
+    browserAdapter = createBrowserAdapter({ debugPort: env.chromeDebugPort });
+  }
+  return browserAdapter;
+}
 
 export async function executeDesktopAction(action: DesktopAction, env: AgentEnv): Promise<ActionResult> {
   const startedAt = new Date();
@@ -125,6 +146,76 @@ export async function executeDesktopAction(action: DesktopAction, env: AgentEnv)
           );
         }
         return executeFindElement(action, startedAt);
+
+      case 'navigate': {
+        if (platform() !== 'win32') {
+          return createActionResult(action, 'unsupported', 'This desktop action currently requires Windows.', startedAt, { error: 'PLATFORM_UNSUPPORTED' });
+        }
+        const adapter = getBrowserAdapter(env);
+        try {
+          await adapter.connect();
+          const navResult = await adapter.navigateTo(action.url);
+          if (navResult.success) {
+            return createActionResult(action, 'success', 'Navigated to ' + action.url, startedAt, { data: { finalUrl: navResult.finalUrl } });
+          }
+          return createActionResult(action, 'failed', 'Navigation failed to ' + action.url, startedAt, { error: 'NAVIGATION_FAILED' });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Browser navigation failed';
+          return createActionResult(action, 'failed', msg, startedAt, { error: msg.includes('DevTools') || msg.includes('connect') ? 'CDP_NOT_CONNECTED' : 'NAVIGATION_FAILED' });
+        }
+      }
+
+      case 'find_window': {
+        if (platform() !== 'win32') {
+          return createActionResult(action, 'unsupported', 'This desktop action currently requires Windows.', startedAt, { error: 'PLATFORM_UNSUPPORTED' });
+        }
+        const matches = await findWindows(action.query);
+        return createActionResult(
+          action,
+          'success',
+          matches.length > 0
+            ? 'Found ' + String(matches.length) + ' window(s) matching "' + action.query + '".'
+            : 'No windows found matching "' + action.query + '".',
+          startedAt,
+          { data: { matches } }
+        );
+      }
+
+      case 'find_ui_element': {
+        if (platform() !== 'win32') {
+          return createActionResult(action, 'unsupported', 'This desktop action currently requires Windows.', startedAt, { error: 'PLATFORM_UNSUPPORTED' });
+        }
+        const element = await findUiElement(action.windowTitle, { name: action.name, role: action.role });
+        if (element) {
+          return createActionResult(action, 'success', 'Found UI element: ' + (element.name || element.role), startedAt, { data: element });
+        }
+        return createActionResult(action, 'failed', 'UI element not found matching query in "' + action.windowTitle + '".', startedAt, { error: 'ELEMENT_NOT_FOUND' });
+      }
+
+      case 'find_browser_element': {
+        if (platform() !== 'win32') {
+          return createActionResult(action, 'unsupported', 'This desktop action currently requires Windows.', startedAt, { error: 'PLATFORM_UNSUPPORTED' });
+        }
+        const adapter = getBrowserAdapter(env);
+        try {
+          await adapter.connect();
+          const found = await adapter.findElement({ selector: action.selector, role: action.role, name: action.name, text: action.text });
+          if (found) {
+            return createActionResult(action, 'success', 'Found browser element: ' + (found.tagName || found.role), startedAt, { data: found });
+          }
+          return createActionResult(action, 'failed', 'Browser element not found.', startedAt, { error: 'ELEMENT_NOT_FOUND' });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Browser element search failed';
+          return createActionResult(action, 'failed', msg, startedAt, { error: msg.includes('DevTools') || msg.includes('connect') ? 'CDP_NOT_CONNECTED' : 'ELEMENT_NOT_FOUND' });
+        }
+      }
+
+      case 'wait_for_condition': {
+        if (platform() !== 'win32') {
+          return createActionResult(action, 'unsupported', 'This desktop action currently requires Windows.', startedAt, { error: 'PLATFORM_UNSUPPORTED' });
+        }
+        return executeWaitForCondition(action, env, startedAt);
+      }
 
       default:
         return createActionResult(action, 'unsupported', 'Unknown action.', startedAt);
@@ -407,6 +498,75 @@ function runAndWait(command: string, args: string[]): Promise<void> {
       resolvePromise();
     });
   });
+}
+
+async function executeWaitForCondition(
+  action: Extract<DesktopAction, { action: 'wait_for_condition' }>,
+  env: AgentEnv,
+  startedAt: Date
+): Promise<ActionResult> {
+  const timeoutMs = action.timeoutMs ?? 5000;
+  const pollInterval = 500;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    let conditionMet = false;
+
+    switch (action.condition) {
+      case 'process_exists':
+        conditionMet = await checkProcessExists(action.target);
+        break;
+
+      case 'window_exists': {
+        const state = await getWindowState(action.target);
+        conditionMet = state !== null;
+        break;
+      }
+
+      case 'url_matches': {
+        try {
+          const adapter = getBrowserAdapter(env);
+          await adapter.connect();
+          const pageState = await adapter.getPageState();
+          conditionMet = pageState.url.toLowerCase().includes(action.target.toLowerCase());
+        } catch {
+          conditionMet = false;
+        }
+        break;
+      }
+
+      case 'element_exists': {
+        try {
+          const adapter = getBrowserAdapter(env);
+          await adapter.connect();
+          const el = await adapter.findElement({ selector: action.target });
+          conditionMet = el !== null;
+        } catch {
+          conditionMet = false;
+        }
+        break;
+      }
+    }
+
+    if (conditionMet) {
+      return createActionResult(
+        action,
+        'success',
+        'Condition met: ' + action.condition + ' (' + action.target + ')',
+        startedAt
+      );
+    }
+
+    await wait(pollInterval);
+  }
+
+  return createActionResult(
+    action,
+    'failed',
+    'Condition not met within ' + String(timeoutMs) + 'ms: ' + action.condition + ' (' + action.target + ')',
+    startedAt,
+    { error: 'TIMEOUT' }
+  );
 }
 
 function wait(ms: number): Promise<void> {

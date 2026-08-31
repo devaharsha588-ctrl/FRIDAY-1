@@ -94,7 +94,8 @@ export type StreamEvent =
 
 // ─── Observations ────────────────────────────────────────────────────────────
 
-export type ObservationType = 'screenshot' | 'active_window' | 'window_list' | 'action_result' | 'error';
+export type ObservationType = 'screenshot' | 'active_window' | 'window_list' | 'action_result' | 'error'
+  | 'verification' | 'recovery' | 'browser_state' | 'ui_state';
 
 export type TaskObservation = {
   id: string;

@@ -14,7 +14,8 @@ const dummyEnv: AgentEnv = {
       command: 'notepad.exe',
       processName: 'notepad.exe'
     }
-  }
+  },
+  chromeDebugPort: 9222
 };
 
 describe('local agent executor', () => {

@@ -3,6 +3,27 @@ import { parseDesktopAction, type DesktopAction } from '../../shared/action-sche
 
 const urlPattern = /\bhttps?:\/\/[^\s"'<>]+/i;
 
+// ─── Phase 3B: Known site URL resolution for planner ────────────────────────
+
+const PLANNER_SITES: Record<string, string> = {
+  youtube: 'https://www.youtube.com',
+  gmail: 'https://mail.google.com',
+  github: 'https://github.com',
+  google: 'https://www.google.com',
+  reddit: 'https://www.reddit.com',
+  x: 'https://x.com',
+  twitter: 'https://x.com',
+  wikipedia: 'https://www.wikipedia.org',
+  amazon: 'https://www.amazon.com',
+  netflix: 'https://www.netflix.com',
+  stackoverflow: 'https://stackoverflow.com',
+  linkedin: 'https://www.linkedin.com'
+};
+
+function resolveSiteUrl(key: string): string | null {
+  return PLANNER_SITES[key.toLowerCase()] ?? null;
+}
+
 export function planComputerActions(input: string): DesktopAction[] {
   const text = input.trim();
   const lower = text.toLowerCase();
@@ -18,6 +39,79 @@ export function planComputerActions(input: string): DesktopAction[] {
       reason: 'The request asks FRIDAY to capture and inspect the screen.'
     });
     return rawActions.map(parseDesktopAction);
+  }
+
+  // ── Phase 3B: Multi-step compound workflows (evaluate first before simple patterns) ──
+
+  // "go to youtube and search for X" / "open youtube and search for X"
+  const searchSiteMatch = lower.match(
+    /\b(?:go\s+to|open|navigate\s+to|launch)\s+([a-z0-9._-]+(?:\.[a-z]{2,})?)\s+and\s+(?:search|search\s+for|find|look\s+for|look\s+up)\s+(.+)/
+  );
+  if (searchSiteMatch) {
+    const siteKey = searchSiteMatch[1].replace(/\.com$/, '').replace(/\.org$/, '').replace(/\.net$/, '');
+    const searchQuery = cleanPath(searchSiteMatch[2]);
+    const siteUrl = resolveSiteUrl(siteKey);
+
+    if (siteUrl) {
+      rawActions.push(
+        { id: nanoid(), action: 'navigate', url: siteUrl, risk: 'low', requiresConfirmation: false, reason: 'Navigate to ' + siteKey },
+        { id: nanoid(), action: 'wait_for_condition', condition: 'url_matches', target: siteKey, timeoutMs: 8000, risk: 'low', requiresConfirmation: false, reason: 'Wait for page to load' },
+        { id: nanoid(), action: 'find_browser_element', role: 'searchbox', name: 'search', risk: 'low', requiresConfirmation: false, reason: 'Find the search input' },
+        { id: nanoid(), action: 'click', button: 'left', target: 'search input', risk: 'low', requiresConfirmation: false, reason: 'Click the search input' },
+        { id: nanoid(), action: 'type_text', text: searchQuery, risk: 'low', requiresConfirmation: false, reason: 'Type the search query' },
+        { id: nanoid(), action: 'keypress', keys: ['enter'], risk: 'low', requiresConfirmation: false, reason: 'Submit the search' }
+      );
+      return rawActions.map(parseDesktopAction);
+    }
+  }
+
+  // "open notepad and type X" / "open app and type X"
+  const openAndTypeMatch = lower.match(
+    /\b(?:open|launch|start)\s+([a-z\s]+?)\s+and\s+(?:type|write|enter)\s+(.+)/
+  );
+  if (openAndTypeMatch) {
+    const appName = openAndTypeMatch[1].trim();
+    const textToType = cleanPath(openAndTypeMatch[2]);
+    rawActions.push(
+      { id: nanoid(), action: 'open_app', appName, risk: 'low', requiresConfirmation: false, reason: 'Open ' + appName },
+      { id: nanoid(), action: 'wait_for_condition', condition: 'process_exists', target: appName, timeoutMs: 5000, risk: 'low', requiresConfirmation: false, reason: 'Wait for ' + appName + ' to start' },
+      { id: nanoid(), action: 'switch_window', title: appName, risk: 'low', requiresConfirmation: false, reason: 'Focus ' + appName + ' window' },
+      { id: nanoid(), action: 'type_text', text: textToType, risk: 'low', requiresConfirmation: false, reason: 'Type text' }
+    );
+    return rawActions.map(parseDesktopAction);
+  }
+
+  // "open chrome and go to X" / "open browser and navigate to X"
+  const openBrowserAndGoMatch = lower.match(
+    /\b(?:open|launch|start)\s+(?:chrome|browser|google\s+chrome)\s+and\s+(?:go\s+to|navigate\s+to|open)\s+([^\s]+)/
+  );
+  if (openBrowserAndGoMatch) {
+    const target = openBrowserAndGoMatch[1];
+    const siteKey = target.replace(/\.com$/, '').replace(/\.org$/, '').replace(/\.net$/, '');
+    const siteUrl = resolveSiteUrl(siteKey) || (target.includes('.') ? 'https://' + target : resolveSiteUrl(target));
+    if (siteUrl) {
+      rawActions.push(
+        { id: nanoid(), action: 'open_app', appName: 'chrome', risk: 'low', requiresConfirmation: false, reason: 'Open Chrome' },
+        { id: nanoid(), action: 'wait_for_condition', condition: 'process_exists', target: 'chrome', timeoutMs: 5000, risk: 'low', requiresConfirmation: false, reason: 'Wait for Chrome to start' },
+        { id: nanoid(), action: 'navigate', url: siteUrl, risk: 'low', requiresConfirmation: false, reason: 'Navigate to ' + target },
+        { id: nanoid(), action: 'wait_for_condition', condition: 'url_matches', target: siteKey, timeoutMs: 8000, risk: 'low', requiresConfirmation: false, reason: 'Wait for page to load' }
+      );
+      return rawActions.map(parseDesktopAction);
+    }
+  }
+
+  // "go to youtube" / "navigate to github.com" (standalone navigation without further action)
+  const navMatch = lower.match(/\b(?:go\s+to|navigate\s+to)\s+([a-z0-9._-]+(?:\.[a-z]{2,})?)\b/);
+  if (navMatch) {
+    const siteKey = navMatch[1].replace(/\.com$/, '').replace(/\.org$/, '').replace(/\.net$/, '');
+    const siteUrl = resolveSiteUrl(siteKey) || (navMatch[1].includes('.') ? 'https://' + navMatch[1] : null);
+    if (siteUrl) {
+      rawActions.push(
+        { id: nanoid(), action: 'navigate', url: siteUrl, risk: 'low', requiresConfirmation: false, reason: 'Navigate to ' + navMatch[1] },
+        { id: nanoid(), action: 'wait_for_condition', condition: 'url_matches', target: siteKey, timeoutMs: 8000, risk: 'low', requiresConfirmation: false, reason: 'Wait for navigation' }
+      );
+      return rawActions.map(parseDesktopAction);
+    }
   }
 
   // Open URL or Tab

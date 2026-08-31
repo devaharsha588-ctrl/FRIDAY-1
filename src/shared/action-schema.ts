@@ -1,5 +1,49 @@
 import { z } from 'zod';
 
+// ─── Phase 3B: Action Target Abstraction ──────────────────────────────────────
+
+export const windowTargetSchema = z.object({
+  type: z.literal('window'),
+  title: z.string().optional(),
+  processName: z.string().optional()
+});
+
+export const uiElementTargetSchema = z.object({
+  type: z.literal('ui_element'),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  automationId: z.string().optional()
+});
+
+export const browserElementTargetSchema = z.object({
+  type: z.literal('browser_element'),
+  selector: z.string().optional(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  text: z.string().optional()
+});
+
+export const coordinateTargetSchema = z.object({
+  type: z.literal('coordinate'),
+  x: z.number().int(),
+  y: z.number().int()
+});
+
+export const actionTargetSchema = z.discriminatedUnion('type', [
+  windowTargetSchema,
+  uiElementTargetSchema,
+  browserElementTargetSchema,
+  coordinateTargetSchema
+]);
+
+export type WindowTarget = z.infer<typeof windowTargetSchema>;
+export type UiElementTarget = z.infer<typeof uiElementTargetSchema>;
+export type BrowserElementTarget = z.infer<typeof browserElementTargetSchema>;
+export type CoordinateTarget = z.infer<typeof coordinateTargetSchema>;
+export type ActionTarget = z.infer<typeof actionTargetSchema>;
+
+// ─── Risk ─────────────────────────────────────────────────────────────────────
+
 export const actionRiskSchema = z.enum(['low', 'medium', 'high']);
 export type ActionRisk = z.infer<typeof actionRiskSchema>;
 
@@ -80,6 +124,41 @@ export const fileOperationActionSchema = actionBaseSchema.extend({
   overwrite: z.boolean().optional()
 });
 
+// ─── Phase 3B: New Action Schemas ─────────────────────────────────────────────
+
+export const navigateActionSchema = actionBaseSchema.extend({
+  action: z.literal('navigate'),
+  url: z.string().min(1)
+});
+
+export const findWindowActionSchema = actionBaseSchema.extend({
+  action: z.literal('find_window'),
+  query: z.string().min(1)
+});
+
+export const findUiElementActionSchema = actionBaseSchema.extend({
+  action: z.literal('find_ui_element'),
+  windowTitle: z.string().min(1),
+  query: z.string().min(1),
+  role: z.string().optional(),
+  name: z.string().optional()
+});
+
+export const findBrowserElementActionSchema = actionBaseSchema.extend({
+  action: z.literal('find_browser_element'),
+  selector: z.string().optional(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  text: z.string().optional()
+});
+
+export const waitForConditionActionSchema = actionBaseSchema.extend({
+  action: z.literal('wait_for_condition'),
+  condition: z.enum(['process_exists', 'window_exists', 'url_matches', 'element_exists']),
+  target: z.string().min(1),
+  timeoutMs: z.number().int().min(100).max(30000).default(5000)
+});
+
 export const desktopActionSchema = z.union([
   openUrlActionSchema,
   newTabActionSchema,
@@ -92,7 +171,12 @@ export const desktopActionSchema = z.union([
   readScreenActionSchema,
   findElementActionSchema,
   waitActionSchema,
-  fileOperationActionSchema
+  fileOperationActionSchema,
+  navigateActionSchema,
+  findWindowActionSchema,
+  findUiElementActionSchema,
+  findBrowserElementActionSchema,
+  waitForConditionActionSchema
 ]);
 
 export const actionStatusSchema = z.enum([

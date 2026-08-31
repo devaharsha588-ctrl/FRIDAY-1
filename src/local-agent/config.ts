@@ -9,6 +9,7 @@ export type AgentEnv = {
   token: string;
   filesRoot: string;
   allowedApps: Record<string, AllowedApp>;
+  chromeDebugPort: number;
 };
 
 function numberFromEnv(value: string | undefined, fallback: number): number {
@@ -37,7 +38,8 @@ export function readAgentEnv(env: NodeJS.ProcessEnv = process.env): AgentEnv {
       terminal: { command: 'cmd.exe', args: ['/c', 'start', 'wt.exe'], processName: 'WindowsTerminal.exe' },
       cmd: { command: 'cmd.exe', processName: 'cmd.exe' },
       ...parseAllowedApps(env.FRIDAY_ALLOWED_APPS)
-    }
+    },
+    chromeDebugPort: numberFromEnv(env.FRIDAY_CHROME_DEBUG_PORT, 9222)
   };
 }
 

@@ -38,6 +38,34 @@ export function summariseObservation(obs: TaskObservation): string {
     }
     case 'action_result':
       return 'Action result recorded.';
+    case 'verification': {
+      const d = obs.data as { observation?: string; verified?: boolean } | null;
+      if (d && typeof d.observation === 'string') {
+        return d.verified ? 'Verified: ' + d.observation : 'Verification failed: ' + d.observation;
+      }
+      return 'Action verification recorded.';
+    }
+    case 'recovery': {
+      const d = obs.data as { strategy?: string; reason?: string } | null;
+      if (d && typeof d.strategy === 'string') {
+        return 'Recovery (' + d.strategy + '): ' + (d.reason || 'Attempting recovery');
+      }
+      return 'Recovery recorded.';
+    }
+    case 'browser_state': {
+      const d = obs.data as { url?: string; title?: string } | null;
+      if (d && typeof d.title === 'string' && typeof d.url === 'string') {
+        return 'Browser state: ' + d.title + ' (' + d.url + ')';
+      }
+      return 'Browser state recorded.';
+    }
+    case 'ui_state': {
+      const d = obs.data as { name?: string; role?: string } | null;
+      if (d && (d.name || d.role)) {
+        return 'UI state: ' + (d.name || d.role);
+      }
+      return 'UI state recorded.';
+    }
     case 'error': {
       const d = obs.data as Record<string, unknown> | null;
       if (d && typeof d.message === 'string') return 'Error: ' + d.message;
