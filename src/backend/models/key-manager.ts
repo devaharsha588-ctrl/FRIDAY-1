@@ -79,6 +79,43 @@ export class KeyManager {
     };
   }
 
+  reload(env: ValidatedBackendEnv): void {
+    this.keys = { ...env.keys };
+    this.cooldownDurationMs = env.modelFailureCooldownMs;
+    this.limitRpm = env.freeModelRateLimitRpm;
+    this.limitRpd = env.freeModelRateLimitRpd;
+
+    this.roleToKeySlot = {
+      coding: 'key_1',
+      fast: 'key_2',
+      complex: 'key_3',
+      grammar: 'key_4',
+      general: 'key_5'
+    };
+
+    const availableSlots = env.configuredKeySlots;
+    if (availableSlots.length > 0) {
+      const fallbackSlot = availableSlots[0];
+      for (const role of Object.keys(this.roleToKeySlot) as FridayRole[]) {
+        const dedicatedSlot = FRIDAY_KEY_ROLES[role].keySlot;
+        if (!this.keys[dedicatedSlot]) {
+          this.roleToKeySlot[role] = fallbackSlot;
+        }
+      }
+    }
+
+    const slots: KeySlot[] = ['key_1', 'key_2', 'key_3', 'key_4', 'key_5'];
+    for (const slot of slots) {
+      if (this.keys[slot]) {
+        if (!this.slotState[slot] || this.slotState[slot].state === 'unavailable') {
+          this.slotState[slot] = { state: 'healthy', cooldownUntil: 0 };
+        }
+      } else {
+        this.slotState[slot] = { state: 'unavailable', cooldownUntil: 0 };
+      }
+    }
+  }
+
   getKeySlotForRole(role: FridayRole): KeySlot {
     return this.roleToKeySlot[role];
   }

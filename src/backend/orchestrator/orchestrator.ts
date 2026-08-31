@@ -8,6 +8,7 @@ import { executeDirectAction } from './direct-action-executor';
 import { ModelRouter, classifyPromptCapability } from '../models/model-router';
 import { FRIDAY_KEY_ROLES, type FridayRole } from '../models/friday-key-roles';
 import { validateEnvironment } from '../config/env-validator';
+import { loadLocalEnv } from '../../shared/load-local-env';
 
 export type ChatInput = {
   message: string;
@@ -25,9 +26,12 @@ let defaultRouter: ModelRouter | null = null;
 
 function getModelRouter(customRouter?: ModelRouter): ModelRouter {
   if (customRouter) return customRouter;
+  loadLocalEnv();
+  const env = validateEnvironment();
   if (!defaultRouter) {
-    const env = validateEnvironment();
     defaultRouter = new ModelRouter(env);
+  } else {
+    defaultRouter.reload(env);
   }
   return defaultRouter;
 }

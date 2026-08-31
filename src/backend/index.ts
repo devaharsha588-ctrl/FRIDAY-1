@@ -26,6 +26,13 @@ const app = express();
 app.use(cors({ origin: ['http://127.0.0.1:5173', 'http://localhost:5173'] }));
 app.use(express.json({ limit: '1mb' }));
 
+app.use((_req, _res, next) => {
+  loadLocalEnv();
+  const refreshedEnv = readBackendEnv();
+  modelRouter.reload(refreshedEnv);
+  next();
+});
+
 const chatRequestSchema = z.object({
   message: z.string().min(1).max(20000),
   conversationId: z.string().optional()

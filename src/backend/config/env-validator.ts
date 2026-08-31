@@ -51,7 +51,7 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
   ];
 
   for (const { slot, envName } of keyEnvVars) {
-    const rawVal = env[envName]?.trim();
+    const rawVal = env[envName]?.trim().replace(/^["']|["']$/g, '');
     if (rawVal && rawVal.length > 0) {
       keys[slot] = rawVal;
       configuredKeySlots.push(slot);

@@ -58,6 +58,11 @@ export class ModelRouter {
     return this.discovery;
   }
 
+  reload(env: ValidatedBackendEnv): void {
+    this.env = env;
+    this.keyManager.reload(env);
+  }
+
   async execute(options: RouterExecuteOptions): Promise<RouterExecuteResult> {
     const { role, messages, requirements, timeoutMs } = options;
     const roleModels = getRoleModels(role);
