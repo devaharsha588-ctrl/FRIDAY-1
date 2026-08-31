@@ -4,9 +4,9 @@ dist/
 .env.*
 !.env.example
 .friday/
+screenshots/
 coverage/
 *.log
 *.local
 playwright-report/
 test-results/
-

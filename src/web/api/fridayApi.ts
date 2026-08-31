@@ -1,3 +1,4 @@
+import type { ActionResult, DesktopAction } from '../../shared/action-schema';
 import type {
   ChatResponse,
   ConversationMessage,
@@ -13,6 +14,16 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
   return payload.conversations;
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to delete conversation');
+}
+
+export async function clearAllConversations(): Promise<void> {
+  const response = await fetch('/api/conversations', { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to clear conversations');
+}
+
 export async function fetchMessages(conversationId: string): Promise<ConversationMessage[]> {
   const response = await fetch(`/api/conversations/${conversationId}/messages`);
   if (!response.ok) throw new Error('Failed to load conversation');
@@ -25,6 +36,22 @@ export async function fetchModelProviders(): Promise<PublicModelProvider[]> {
   if (!response.ok) throw new Error('Failed to load model settings');
   const payload = await response.json() as { providers: PublicModelProvider[] };
   return payload.providers;
+}
+
+export async function executeAction(action: DesktopAction): Promise<ActionResult> {
+  const response = await fetch('/api/actions/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Action execution failed: ${errorBody.slice(0, 300)}`);
+  }
+
+  const payload = await response.json() as { result: ActionResult };
+  return payload.result;
 }
 
 export async function streamChat(
@@ -65,4 +92,3 @@ export async function streamChat(
 
   return finalResponse;
 }
-

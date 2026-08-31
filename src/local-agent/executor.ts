@@ -8,6 +8,14 @@ import {
   type DesktopAction
 } from '../shared/action-schema';
 import type { AgentEnv } from './config';
+import {
+  captureScreen,
+  findWindows,
+  mouseClick,
+  sendKeypress,
+  switchWindow,
+  typeText
+} from './adapters/windows-adapter';
 
 export async function executeDesktopAction(action: DesktopAction, env: AgentEnv): Promise<ActionResult> {
   const startedAt = new Date();
@@ -38,18 +46,85 @@ export async function executeDesktopAction(action: DesktopAction, env: AgentEnv)
       case 'file_operation':
         return executeFileOperation(action, env, startedAt);
 
-      case 'click':
-      case 'type_text':
-      case 'keypress':
       case 'read_screen':
-      case 'find_element':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        return executeReadScreen(action, env, startedAt);
+
       case 'switch_window':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        return executeSwitchWindow(action, startedAt);
+
+      case 'type_text':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        await typeText(action.text);
+        return createActionResult(action, 'success', `Typed text into active window.`, startedAt);
+
+      case 'keypress':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        await sendKeypress(action.keys);
+        return createActionResult(action, 'success', `Pressed keys: ${action.keys.join('+')}`, startedAt);
+
+      case 'click':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        await mouseClick(action.x, action.y, action.button);
         return createActionResult(
           action,
-          'unsupported',
-          `${action.action} is defined but blocked until a real UI automation adapter is configured.`,
+          'success',
+          `Clicked ${action.button || 'left'} button${action.x !== undefined && action.y !== undefined ? ` at (${action.x}, ${action.y})` : ''}.`,
           startedAt
         );
+
+      case 'find_element':
+        if (platform() !== 'win32') {
+          return createActionResult(
+            action,
+            'unsupported',
+            'This desktop action currently requires Windows.',
+            startedAt,
+            { error: 'PLATFORM_UNSUPPORTED' }
+          );
+        }
+        return executeFindElement(action, startedAt);
 
       default:
         return createActionResult(action, 'unsupported', 'Unknown action.', startedAt);
@@ -76,6 +151,95 @@ export function resolveAgentPath(root: string, requestedPath: string): string {
   }
 
   return targetPath;
+}
+
+async function executeReadScreen(
+  action: Extract<DesktopAction, { action: 'read_screen' }>,
+  env: AgentEnv,
+  startedAt: Date
+): Promise<ActionResult> {
+  const screenshotDir = resolve(env.filesRoot, 'screenshots');
+  await mkdir(screenshotDir, { recursive: true });
+  const filename = `screen-${Date.now()}.png`;
+  const filePath = resolve(screenshotDir, filename);
+
+  const res = await captureScreen(filePath);
+  return createActionResult(
+    action,
+    'success',
+    `Captured desktop screenshot (${res.width}x${res.height}).`,
+    startedAt,
+    {
+      data: {
+        width: res.width,
+        height: res.height,
+        path: `screenshots/${filename}`,
+        thumbnailBase64: res.thumbnailBase64
+      }
+    }
+  );
+}
+
+async function executeSwitchWindow(
+  action: Extract<DesktopAction, { action: 'switch_window' }>,
+  startedAt: Date
+): Promise<ActionResult> {
+  const result = await switchWindow({
+    appName: action.appName,
+    title: action.title
+  });
+
+  if (result.success) {
+    return createActionResult(
+      action,
+      'success',
+      `Focused window: ${result.matchedTitle || action.title || action.appName}`,
+      startedAt,
+      { data: { matchedTitle: result.matchedTitle } }
+    );
+  }
+
+  if (result.ambiguous) {
+    return createActionResult(
+      action,
+      'failed',
+      result.error || `Multiple matching windows found.`,
+      startedAt,
+      { data: { matches: result.matches }, error: 'AMBIGUOUS_TARGET' }
+    );
+  }
+
+  return createActionResult(
+    action,
+    'failed',
+    result.error || `Could not find an open window matching "${action.title || action.appName}".`,
+    startedAt,
+    { error: 'WINDOW_NOT_FOUND' }
+  );
+}
+
+async function executeFindElement(
+  action: Extract<DesktopAction, { action: 'find_element' }>,
+  startedAt: Date
+): Promise<ActionResult> {
+  const matches = await findWindows(action.query);
+  if (matches.length > 0) {
+    return createActionResult(
+      action,
+      'success',
+      `Found ${matches.length} open window${matches.length === 1 ? '' : 's'} matching "${action.query}".`,
+      startedAt,
+      { data: { matches } }
+    );
+  }
+
+  return createActionResult(
+    action,
+    'success',
+    `No open windows found matching "${action.query}".`,
+    startedAt,
+    { data: { matches: [] } }
+  );
 }
 
 async function openExternal(url: string): Promise<void> {
@@ -117,7 +281,12 @@ async function closeAllowedApp(
   startedAt: Date
 ): Promise<ActionResult> {
   if (!action.confirmed) {
-    return createActionResult(action, 'needs_confirmation', `Closing ${action.appName} requires confirmation.`, startedAt);
+    return createActionResult(
+      action,
+      'needs_confirmation',
+      `Closing ${action.appName} requires confirmation to prevent loss of unsaved work.`,
+      startedAt
+    );
   }
 
   const app = env.allowedApps[action.appName.toLowerCase()];
@@ -126,11 +295,17 @@ async function closeAllowedApp(
   }
 
   if (platform() !== 'win32') {
-    return createActionResult(action, 'unsupported', 'close_app is currently implemented for Windows process names only.', startedAt);
+    return createActionResult(
+      action,
+      'unsupported',
+      'close_app is currently implemented for Windows process names only.',
+      startedAt,
+      { error: 'PLATFORM_UNSUPPORTED' }
+    );
   }
 
   await runAndWait('taskkill.exe', ['/IM', app.processName, '/T']);
-  return createActionResult(action, 'success', `Requested close for ${action.appName}.`, startedAt);
+  return createActionResult(action, 'success', `Closed ${action.appName}.`, startedAt);
 }
 
 async function executeFileOperation(
@@ -182,7 +357,12 @@ async function executeFileOperation(
 
   if (action.operation === 'delete') {
     if (!action.confirmed) {
-      return createActionResult(action, 'needs_confirmation', `Deleting ${action.path} requires confirmation.`, startedAt);
+      return createActionResult(
+        action,
+        'needs_confirmation',
+        `Deleting ${action.path} requires explicit user confirmation.`,
+        startedAt
+      );
     }
 
     const info = await stat(targetPath);
@@ -234,4 +414,3 @@ function wait(ms: number): Promise<void> {
     setTimeout(resolvePromise, ms);
   });
 }
-

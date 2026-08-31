@@ -1,8 +1,13 @@
 import { z } from 'zod';
 
+export const actionRiskSchema = z.enum(['low', 'medium', 'high']);
+export type ActionRisk = z.infer<typeof actionRiskSchema>;
+
 const actionBaseSchema = z.object({
   id: z.string().min(1),
   reason: z.string().optional(),
+  risk: actionRiskSchema.optional(),
+  requiresConfirmation: z.boolean().optional(),
   confirmed: z.boolean().optional()
 });
 
@@ -91,11 +96,15 @@ export const desktopActionSchema = z.union([
 ]);
 
 export const actionStatusSchema = z.enum([
+  'pending',
+  'running',
   'success',
+  'completed',
   'failed',
   'blocked',
   'unsupported',
-  'needs_confirmation'
+  'needs_confirmation',
+  'cancelled'
 ]);
 
 export const actionResultSchema = z.object({
@@ -115,6 +124,48 @@ export type ActionStatus = z.infer<typeof actionStatusSchema>;
 
 export function parseDesktopAction(input: unknown): DesktopAction {
   return desktopActionSchema.parse(input);
+}
+
+export function isDestructiveAction(action: DesktopAction): boolean {
+  if (action.action === 'close_app') return true;
+  if (action.action === 'file_operation' && action.operation === 'delete') return true;
+  if (action.risk === 'high' || action.requiresConfirmation) return true;
+  return false;
+}
+
+export function evaluateActionRisk(action: DesktopAction): {
+  risk: ActionRisk;
+  requiresConfirmation: boolean;
+  reason?: string;
+} {
+  if (action.action === 'close_app') {
+    return {
+      risk: 'high',
+      requiresConfirmation: true,
+      reason: `Closing application "${action.appName}" may cause unsaved data loss.`
+    };
+  }
+
+  if (action.action === 'file_operation' && action.operation === 'delete') {
+    return {
+      risk: 'high',
+      requiresConfirmation: true,
+      reason: `Deleting file "${action.path}" is irreversible.`
+    };
+  }
+
+  if (action.action === 'file_operation' && action.operation === 'write' && action.overwrite) {
+    return {
+      risk: 'medium',
+      requiresConfirmation: true,
+      reason: `Overwriting file "${action.path}" will replace its current content.`
+    };
+  }
+
+  return {
+    risk: action.risk || 'low',
+    requiresConfirmation: action.requiresConfirmation || false
+  };
 }
 
 export function createActionResult(

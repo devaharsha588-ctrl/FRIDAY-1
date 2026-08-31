@@ -77,6 +77,23 @@ export class ConversationStore {
     return { conversationId: conversation.id, message };
   }
 
+  async deleteConversation(conversationId: string): Promise<boolean> {
+    await this.load();
+    const initialLen = this.data.conversations.length;
+    this.data.conversations = this.data.conversations.filter((c) => c.id !== conversationId);
+    if (this.data.conversations.length !== initialLen) {
+      await this.save();
+      return true;
+    }
+    return false;
+  }
+
+  async clearAllConversations(): Promise<void> {
+    await this.load();
+    this.data.conversations = [];
+    await this.save();
+  }
+
   private async load(): Promise<void> {
     if (this.loaded) return;
 
@@ -101,4 +118,3 @@ function createTitle(content: string): string {
   if (!compact) return 'New conversation';
   return compact.length > 48 ? `${compact.slice(0, 45)}...` : compact;
 }
-

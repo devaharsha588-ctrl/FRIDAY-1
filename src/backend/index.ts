@@ -6,6 +6,8 @@ import { createModelRegistry, toPublicProvider } from './ai/model-registry';
 import { readBackendEnv, isUsingDefaultAgentToken } from './config/env';
 import { ConversationStore } from './memory/conversation-store';
 import { handleChat } from './orchestrator/orchestrator';
+import { createActionResult, evaluateActionRisk, parseDesktopAction } from '../shared/action-schema';
+import { executeAgentAction } from './agent/agent-client';
 import type { StreamEvent } from '../shared/chat-contracts';
 
 loadLocalEnv();
@@ -20,6 +22,10 @@ app.use(express.json({ limit: '1mb' }));
 const chatRequestSchema = z.object({
   message: z.string().min(1).max(12000),
   conversationId: z.string().optional()
+});
+
+const executeActionSchema = z.object({
+  action: z.record(z.string(), z.unknown())
 });
 
 app.get('/api/health', (_req, res) => {
@@ -44,9 +50,61 @@ app.get('/api/conversations', async (_req, res, next) => {
   }
 });
 
+app.delete('/api/conversations', async (_req, res, next) => {
+  try {
+    await store.clearAllConversations();
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/conversations/:id/messages', async (req, res, next) => {
   try {
     res.json({ messages: await store.getMessages(req.params.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/conversations/:id', async (req, res, next) => {
+  try {
+    const deleted = await store.deleteConversation(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Conversation not found' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/actions/execute', async (req, res, next) => {
+  try {
+    const body = executeActionSchema.parse(req.body);
+    const parsedAction = parseDesktopAction(body.action);
+    const riskEval = evaluateActionRisk(parsedAction);
+
+    // If confirmation is required and confirmed flag is not true, block execution safely
+    if (riskEval.requiresConfirmation && !parsedAction.confirmed) {
+      const startedAt = new Date();
+      res.json({
+        result: createActionResult(
+          parsedAction,
+          'needs_confirmation',
+          riskEval.reason || `This action requires explicit user confirmation before execution.`,
+          startedAt
+        )
+      });
+      return;
+    }
+
+    const result = await executeAgentAction(parsedAction, {
+      agentUrl: env.agentUrl,
+      agentToken: env.agentToken
+    });
+    res.json({ result });
   } catch (error) {
     next(error);
   }

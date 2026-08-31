@@ -13,7 +13,15 @@ import { ChatComposer } from './components/ChatComposer';
 import { ConversationRail } from './components/ConversationRail';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StatusStrip } from './components/StatusStrip';
-import { fetchConversations, fetchMessages, fetchModelProviders, streamChat } from './api/fridayApi';
+import {
+  clearAllConversations,
+  deleteConversation,
+  executeAction,
+  fetchConversations,
+  fetchMessages,
+  fetchModelProviders,
+  streamChat
+} from './api/fridayApi';
 
 export function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -53,6 +61,80 @@ export function App() {
     setPlannedActions([]);
     setActionResults([]);
     setStatus('Ready');
+  }
+
+  async function handleDeleteConversation(id: string) {
+    try {
+      await deleteConversation(id);
+      if (conversationId === id) {
+        startNewConversation();
+      }
+      await refreshConversations();
+    } catch {
+      setStatus('Failed to delete conversation');
+    }
+  }
+
+  async function handleClearAllConversations() {
+    try {
+      await clearAllConversations();
+      startNewConversation();
+      await refreshConversations();
+    } catch {
+      setStatus('Failed to clear conversations');
+    }
+  }
+
+  async function handleConfirmAction(action: DesktopAction) {
+    setStatus(`Executing ${action.action}...`);
+    try {
+      const confirmedAction: DesktopAction = { ...action, confirmed: true };
+      const result = await executeAction(confirmedAction);
+      setActionResults((current) => [
+        ...current.filter((r) => r.id !== result.id),
+        result
+      ]);
+      setStatus(result.status === 'success' ? 'Action complete' : 'Action failed');
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: result.status === 'success'
+            ? `Action executed: ${result.summary}`
+            : `Action failed: ${result.summary}`,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Execution failed';
+      setStatus('Action failed');
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `Failed to execute action: ${msg}`,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+  }
+
+  function handleCancelAction(actionId: string) {
+    setActionResults((current) => {
+      const existing = current.find((r) => r.id === actionId);
+      const updated: ActionResult = {
+        id: actionId,
+        action: existing?.action || 'action',
+        status: 'cancelled',
+        summary: 'Action cancelled by user.',
+        startedAt: existing?.startedAt || new Date().toISOString(),
+        completedAt: new Date().toISOString()
+      };
+      return [...current.filter((r) => r.id !== actionId), updated];
+    });
+    setStatus('Action cancelled');
   }
 
   async function sendMessage(content: string) {
@@ -113,7 +195,13 @@ export function App() {
 
     if (event.type === 'action_result') {
       setActionResults((current) => [...current.filter((result) => result.id !== event.result.id), event.result]);
-      setStatus(event.result.status === 'success' ? 'Action complete' : 'Action needs attention');
+      if (event.result.status === 'success') {
+        setStatus('Action complete');
+      } else if (event.result.status === 'needs_confirmation') {
+        setStatus('Confirmation required');
+      } else {
+        setStatus('Action needs attention');
+      }
       return;
     }
 
@@ -136,7 +224,8 @@ export function App() {
       setActiveProvider(event.response.provider);
       setPlannedActions(event.response.plannedActions);
       setActionResults(event.response.actionResults);
-      setStatus('Ready');
+      const hasPendingConfirm = event.response.actionResults.some((r) => r.status === 'needs_confirmation');
+      setStatus(hasPendingConfirm ? 'Confirmation required' : 'Ready');
     }
   }
 
@@ -147,6 +236,8 @@ export function App() {
         activeId={conversationId}
         onSelect={selectConversation}
         onNew={startNewConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onClearConversations={handleClearAllConversations}
       />
       <main className="main-workspace">
         <header className="topbar">
@@ -165,7 +256,7 @@ export function App() {
             <div className="empty-chat">
               <Monitor size={28} aria-hidden="true" />
               <h2>What should FRIDAY do?</h2>
-              <p>Try "open https://example.com", "open Notepad", or "list files in ."</p>
+              <p>Try "take a screenshot", "open Notepad", "list files in .", or "close Notepad".</p>
             </div>
           ) : (
             <div className="message-list">
@@ -181,10 +272,14 @@ export function App() {
         <ChatComposer disabled={busy} onSubmit={sendMessage} />
       </main>
       <div className="right-column">
-        <ActionTimeline plannedActions={plannedActions} results={actionResults} />
+        <ActionTimeline
+          plannedActions={plannedActions}
+          results={actionResults}
+          onConfirmAction={handleConfirmAction}
+          onCancelAction={handleCancelAction}
+        />
         <SettingsPanel providers={providers} />
       </div>
     </div>
   );
 }
-
