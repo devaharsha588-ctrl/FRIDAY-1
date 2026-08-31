@@ -25,6 +25,17 @@ export function readAgentEnv(env: NodeJS.ProcessEnv = process.env): AgentEnv {
     allowedApps: {
       notepad: { command: 'notepad.exe', processName: 'notepad.exe' },
       calculator: { command: 'calc.exe', processName: 'CalculatorApp.exe' },
+      calc: { command: 'calc.exe', processName: 'CalculatorApp.exe' },
+      chrome: { command: 'cmd.exe', args: ['/c', 'start', 'chrome'], processName: 'chrome.exe' },
+      vscode: { command: 'cmd.exe', args: ['/c', 'code'], processName: 'Code.exe' },
+      code: { command: 'cmd.exe', args: ['/c', 'code'], processName: 'Code.exe' },
+      'visual studio code': { command: 'cmd.exe', args: ['/c', 'code'], processName: 'Code.exe' },
+      spotify: { command: 'cmd.exe', args: ['/c', 'start', 'spotify:'], processName: 'Spotify.exe' },
+      explorer: { command: 'explorer.exe', processName: 'explorer.exe' },
+      'file explorer': { command: 'explorer.exe', processName: 'explorer.exe' },
+      powershell: { command: 'powershell.exe', processName: 'powershell.exe' },
+      terminal: { command: 'cmd.exe', args: ['/c', 'start', 'wt.exe'], processName: 'WindowsTerminal.exe' },
+      cmd: { command: 'cmd.exe', processName: 'cmd.exe' },
       ...parseAllowedApps(env.FRIDAY_ALLOWED_APPS)
     }
   };

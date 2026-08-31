@@ -6,6 +6,8 @@ import { getProviderForTask, toPublicProvider } from '../ai/model-registry';
 import { executeAgentAction, type AgentClientConfig } from '../agent/agent-client';
 import { ConversationStore } from '../memory/conversation-store';
 import { describeUnsupportedComputerRequest, planComputerActions } from './planner';
+import { routeSimpleCommand } from './command-router';
+import { executeDirectAction } from './direct-action-executor';
 
 export type ChatInput = {
   message: string;
@@ -26,6 +28,45 @@ export async function handleChat(input: ChatInput, options: OrchestratorOptions)
 
   await options.onEvent?.({ type: 'status', message: 'Reading request' });
   const userEntry = await options.store.appendMessage(input.conversationId, 'user', userText);
+
+  // ── Phase 3A: Fast path for simple deterministic commands ─────────────────
+  const simpleRoute = routeSimpleCommand(userText);
+  if (simpleRoute.isSimple) {
+    const publicProvider: PublicModelProvider = {
+      taskType: 'computer',
+      configured: true,
+      baseUrl: ''
+    };
+    await options.onEvent?.({ type: 'classification', taskType: 'computer', provider: publicProvider });
+    await options.onEvent?.({ type: 'planned_actions', actions: [simpleRoute.action] });
+    await options.onEvent?.({ type: 'status', message: 'Running ' + simpleRoute.action.action });
+
+    const directExec = await executeDirectAction(simpleRoute.action, {
+      agent: options.agent,
+      successMessage: simpleRoute.successMessage
+    });
+
+    await options.onEvent?.({ type: 'action_result', result: directExec.result });
+
+    const assistantEntry = await options.store.appendMessage(
+      userEntry.conversationId,
+      'assistant',
+      directExec.message
+    );
+
+    const response: ChatResponse = {
+      conversationId: userEntry.conversationId,
+      taskType: 'computer',
+      provider: publicProvider,
+      message: assistantEntry.message,
+      plannedActions: [simpleRoute.action],
+      actionResults: [directExec.result]
+    };
+
+    await options.onEvent?.({ type: 'final', response });
+    return response;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   const taskType = classifyTask(userText);
   const provider = getProviderForTask(taskType);

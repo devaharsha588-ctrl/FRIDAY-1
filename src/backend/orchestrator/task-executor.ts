@@ -13,6 +13,7 @@ import { runAction, type ActionRunnerOptions } from './action-runner';
 import { requiresUserConfirmation } from './confirmation-policy';
 import { createObservation } from './observation';
 import { planComputerActions } from './planner';
+import { routeSimpleCommand } from './command-router';
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -111,15 +112,22 @@ async function executeLoop(
   runnerOptions: ActionRunnerOptions,
   isTimedOut: () => boolean
 ): Promise<void> {
-  // Plan the initial set of actions from the goal
   let plannedActions: DesktopAction[];
-  try {
-    plannedActions = planComputerActions(goal);
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Planning failed';
-    const updated = taskStore.updateStatus(taskId, 'failed', msg);
-    if (updated) onEvent({ type: 'task_failed', task: snapshot(updated) });
-    return;
+
+  // ── Phase 3A: Fast-path check ─────────────────────────────────────────────
+  const simpleRoute = routeSimpleCommand(goal);
+  if (simpleRoute.isSimple) {
+    plannedActions = [simpleRoute.action];
+  } else {
+    // Fall back to autonomous multi-step planner
+    try {
+      plannedActions = planComputerActions(goal);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Planning failed';
+      const updated = taskStore.updateStatus(taskId, 'failed', msg);
+      if (updated) onEvent({ type: 'task_failed', task: snapshot(updated) });
+      return;
+    }
   }
 
   if (plannedActions.length === 0) {
