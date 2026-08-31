@@ -671,3 +671,88 @@ h1 {
     max-width: 100%;
   }
 }
+
+/* ─── Phase 2: Task UI ───────────────────────────────────────────────────────── */
+
+.task-goal {
+  font-size: 13px;
+  margin: 6px 0 2px;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.04);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+.task-meta {
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.task-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 6px 0;
+}
+
+.task-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+.task-status-planning   { background: #dbeafe; color: #1d4ed8; }
+.task-status-running    { background: #d1fae5; color: #065f46; }
+.task-status-observing  { background: #ede9fe; color: #6d28d9; }
+.task-status-waiting_confirmation { background: #fef3c7; color: #92400e; }
+.task-status-completed  { background: #d1fae5; color: #065f46; }
+.task-status-failed     { background: #fee2e2; color: #991b1b; }
+.task-status-cancelled  { background: #f3f4f6; color: #374151; }
+
+.risk-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+.risk-low    { background: #d1fae5; color: #065f46; }
+.risk-medium { background: #fef3c7; color: #92400e; }
+.risk-high   { background: #fee2e2; color: #991b1b; }
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-cancel-btn {
+  display: block;
+  width: 100%;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

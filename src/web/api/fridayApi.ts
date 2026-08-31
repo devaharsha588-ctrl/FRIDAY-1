@@ -4,7 +4,8 @@ import type {
   ConversationMessage,
   ConversationSummary,
   PublicModelProvider,
-  StreamEvent
+  StreamEvent,
+  TaskState
 } from '../../shared/chat-contracts';
 
 export async function fetchConversations(): Promise<ConversationSummary[]> {
@@ -91,4 +92,62 @@ export async function streamChat(
   }
 
   return finalResponse;
+}
+
+// ─── Phase 2: Task API ────────────────────────────────────────────────────────
+
+export async function startTaskStream(
+  input: { goal: string; conversationId?: string },
+  onEvent: (event: StreamEvent) => void
+): Promise<void> {
+  const response = await fetch('/api/tasks/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error('Failed to start task stream');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() ?? '';
+
+    for (const frame of frames) {
+      const line = frame.split('\n').find((entry) => entry.startsWith('data: '));
+      if (!line) continue;
+      const event = JSON.parse(line.slice(6)) as StreamEvent;
+      onEvent(event);
+    }
+  }
+}
+
+export async function cancelTask(taskId: string): Promise<void> {
+  const response = await fetch(`/api/tasks/${taskId}/cancel`, { method: 'POST' });
+  if (!response.ok) throw new Error('Failed to cancel task');
+}
+
+export async function confirmTask(taskId: string, confirmed: boolean): Promise<void> {
+  const response = await fetch(`/api/tasks/${taskId}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmed })
+  });
+  if (!response.ok) throw new Error('Failed to send confirmation');
+}
+
+export async function getTask(taskId: string): Promise<TaskState> {
+  const response = await fetch(`/api/tasks/${taskId}`);
+  if (!response.ok) throw new Error('Task not found');
+  const payload = await response.json() as { task: TaskState };
+  return payload.task;
 }

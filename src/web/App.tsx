@@ -5,7 +5,8 @@ import type {
   ConversationMessage,
   ConversationSummary,
   PublicModelProvider,
-  StreamEvent
+  StreamEvent,
+  TaskState
 } from '../shared/chat-contracts';
 import type { TaskType } from '../shared/task-types';
 import { ActionTimeline } from './components/ActionTimeline';
@@ -14,12 +15,15 @@ import { ConversationRail } from './components/ConversationRail';
 import { SettingsPanel } from './components/SettingsPanel';
 import { StatusStrip } from './components/StatusStrip';
 import {
+  cancelTask,
   clearAllConversations,
+  confirmTask,
   deleteConversation,
   executeAction,
   fetchConversations,
   fetchMessages,
   fetchModelProviders,
+  startTaskStream,
   streamChat
 } from './api/fridayApi';
 
@@ -32,6 +36,7 @@ export function App() {
   const [activeProvider, setActiveProvider] = useState<PublicModelProvider | undefined>();
   const [plannedActions, setPlannedActions] = useState<DesktopAction[]>([]);
   const [actionResults, setActionResults] = useState<ActionResult[]>([]);
+  const [activeTask, setActiveTask] = useState<TaskState | undefined>();
   const [status, setStatus] = useState('Ready');
   const [busy, setBusy] = useState(false);
 
@@ -52,6 +57,7 @@ export function App() {
     setMessages(await fetchMessages(id));
     setPlannedActions([]);
     setActionResults([]);
+    setActiveTask(undefined);
     setStatus('Ready');
   }
 
@@ -60,6 +66,7 @@ export function App() {
     setMessages([]);
     setPlannedActions([]);
     setActionResults([]);
+    setActiveTask(undefined);
     setStatus('Ready');
   }
 
@@ -86,7 +93,7 @@ export function App() {
   }
 
   async function handleConfirmAction(action: DesktopAction) {
-    setStatus(`Executing ${action.action}...`);
+    setStatus('Executing ' + action.action + '...');
     try {
       const confirmedAction: DesktopAction = { ...action, confirmed: true };
       const result = await executeAction(confirmedAction);
@@ -100,9 +107,10 @@ export function App() {
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: result.status === 'success'
-            ? `Action executed: ${result.summary}`
-            : `Action failed: ${result.summary}`,
+          content:
+            result.status === 'success'
+              ? 'Action executed: ' + result.summary
+              : 'Action failed: ' + result.summary,
           createdAt: new Date().toISOString()
         }
       ]);
@@ -114,7 +122,7 @@ export function App() {
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: `Failed to execute action: ${msg}`,
+          content: 'Failed to execute action: ' + msg,
           createdAt: new Date().toISOString()
         }
       ]);
@@ -126,16 +134,41 @@ export function App() {
       const existing = current.find((r) => r.id === actionId);
       const updated: ActionResult = {
         id: actionId,
-        action: existing?.action || 'action',
+        action: existing?.action ?? 'action',
         status: 'cancelled',
         summary: 'Action cancelled by user.',
-        startedAt: existing?.startedAt || new Date().toISOString(),
+        startedAt: existing?.startedAt ?? new Date().toISOString(),
         completedAt: new Date().toISOString()
       };
       return [...current.filter((r) => r.id !== actionId), updated];
     });
     setStatus('Action cancelled');
   }
+
+  async function handleConfirmTask(taskId: string, confirmed: boolean) {
+    try {
+      await confirmTask(taskId, confirmed);
+      if (!confirmed) {
+        setStatus('Task action denied');
+      } else {
+        setStatus('Resuming task...');
+      }
+    } catch {
+      setStatus('Failed to send confirmation');
+    }
+  }
+
+  async function handleCancelTask(taskId: string) {
+    try {
+      await cancelTask(taskId);
+      setActiveTask((t) => (t ? { ...t, status: 'cancelled' } : t));
+      setStatus('Task cancelled');
+    } catch {
+      setStatus('Failed to cancel task');
+    }
+  }
+
+  // ─── Task-aware send message ───────────────────────────────────────────────
 
   async function sendMessage(content: string) {
     const optimistic: ConversationMessage = {
@@ -150,7 +183,39 @@ export function App() {
     setStatus('Thinking');
     setPlannedActions([]);
     setActionResults([]);
+    setActiveTask(undefined);
 
+    // Detect if this looks like a multi-step task vs. a single-turn chat
+    const isComputerTask = /\b(open|close|click|type|press|screenshot|switch|find window|wait|file|folder)\b/i.test(content);
+
+    if (isComputerTask) {
+      await runAsTask(content);
+    } else {
+      await runAsChat(content);
+    }
+
+    setBusy(false);
+  }
+
+  async function runAsTask(goal: string) {
+    try {
+      await startTaskStream({ goal, conversationId }, handleTaskStreamEvent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Task stream failed';
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: message,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+      setStatus('Task failed');
+    }
+  }
+
+  async function runAsChat(content: string) {
     try {
       const response = await streamChat({ message: content, conversationId }, handleStreamEvent);
       if (response) {
@@ -170,29 +235,144 @@ export function App() {
         }
       ]);
       setStatus('Needs attention');
-    } finally {
-      setBusy(false);
     }
   }
+
+  // ─── Task stream event handler ─────────────────────────────────────────────
+
+  function handleTaskStreamEvent(event: StreamEvent) {
+    switch (event.type) {
+      case 'task_started':
+        setActiveTask(event.task);
+        setStatus('Task started');
+        break;
+      case 'task_planning':
+        setStatus('Planning...');
+        break;
+      case 'action_created':
+        setActiveTask((t) =>
+          t && t.id === event.taskId
+            ? { ...t, actions: [...t.actions, event.action] }
+            : t
+        );
+        break;
+      case 'action_started':
+        setStatus('Running step...');
+        break;
+      case 'action_completed':
+        setActiveTask((t) => {
+          if (!t || t.id !== event.taskId) return t;
+          return {
+            ...t,
+            results: [...t.results.filter((r) => r.id !== event.result.id), event.result]
+          };
+        });
+        setStatus('Step complete');
+        break;
+      case 'action_failed':
+        setActiveTask((t) => {
+          if (!t || t.id !== event.taskId) return t;
+          return {
+            ...t,
+            results: [...t.results.filter((r) => r.id !== event.result.id), event.result]
+          };
+        });
+        setStatus('Step failed');
+        break;
+      case 'confirmation_required':
+        setActiveTask((t) =>
+          t && t.id === event.taskId
+            ? { ...t, status: 'waiting_confirmation', pendingConfirmation: event.pending }
+            : t
+        );
+        setStatus('Confirmation required');
+        break;
+      case 'task_paused':
+        setActiveTask(event.task);
+        setStatus('Task paused — waiting for confirmation');
+        break;
+      case 'task_resumed':
+        setActiveTask((t) =>
+          t && t.id === event.taskId
+            ? { ...t, status: 'running', pendingConfirmation: null }
+            : t
+        );
+        setStatus('Task resumed');
+        break;
+      case 'task_completed':
+        setActiveTask(event.task);
+        setStatus('Task complete');
+        setMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: 'Task completed in ' + String(event.task.stepCount) + ' step' + (event.task.stepCount === 1 ? '' : 's') + '.',
+            createdAt: new Date().toISOString()
+          }
+        ]);
+        void refreshConversations();
+        break;
+      case 'task_failed':
+        setActiveTask(event.task);
+        setStatus('Task failed');
+        setMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: 'Task failed: ' + (event.task.error ?? 'Unknown error'),
+            createdAt: new Date().toISOString()
+          }
+        ]);
+        break;
+      case 'task_cancelled':
+        setActiveTask(event.task);
+        setStatus('Task cancelled');
+        setMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: 'Task was cancelled.',
+            createdAt: new Date().toISOString()
+          }
+        ]);
+        break;
+      case 'error':
+        setStatus('Error');
+        setMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: event.message,
+            createdAt: new Date().toISOString()
+          }
+        ]);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // ─── Single-turn stream event handler (Phase 1) ────────────────────────────
 
   function handleStreamEvent(event: StreamEvent) {
     if (event.type === 'status') {
       setStatus(event.message);
       return;
     }
-
     if (event.type === 'classification') {
       setTaskType(event.taskType);
       setActiveProvider(event.provider);
       setStatus('Routed');
       return;
     }
-
     if (event.type === 'planned_actions') {
       setPlannedActions(event.actions);
       return;
     }
-
     if (event.type === 'action_result') {
       setActionResults((current) => [...current.filter((result) => result.id !== event.result.id), event.result]);
       if (event.result.status === 'success') {
@@ -204,7 +384,6 @@ export function App() {
       }
       return;
     }
-
     if (event.type === 'error') {
       setStatus('Needs attention');
       setMessages((current) => [
@@ -218,7 +397,6 @@ export function App() {
       ]);
       return;
     }
-
     if (event.type === 'final') {
       setTaskType(event.response.taskType);
       setActiveProvider(event.response.provider);
@@ -261,7 +439,7 @@ export function App() {
           ) : (
             <div className="message-list">
               {visibleMessages.map((message) => (
-                <article className={`message ${message.role}`} key={message.id}>
+                <article className={'message ' + message.role} key={message.id}>
                   <span>{message.role === 'user' ? 'You' : 'FRIDAY'}</span>
                   <p>{message.content}</p>
                 </article>
@@ -275,8 +453,11 @@ export function App() {
         <ActionTimeline
           plannedActions={plannedActions}
           results={actionResults}
+          activeTask={activeTask}
           onConfirmAction={handleConfirmAction}
           onCancelAction={handleCancelAction}
+          onConfirmTask={handleConfirmTask}
+          onCancelTask={handleCancelTask}
         />
         <SettingsPanel providers={providers} />
       </div>

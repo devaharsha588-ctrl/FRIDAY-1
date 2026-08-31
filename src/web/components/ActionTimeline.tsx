@@ -1,19 +1,35 @@
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, ImageIcon, ShieldAlert, Wrench, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  ImageIcon,
+  Loader2,
+  ShieldAlert,
+  Wrench,
+  XCircle
+} from 'lucide-react';
 import type { ActionResult, DesktopAction } from '../../shared/action-schema';
+import type { TaskState } from '../../shared/chat-contracts';
 
 type ActionTimelineProps = {
   plannedActions: DesktopAction[];
   results: ActionResult[];
+  activeTask?: TaskState;
   onConfirmAction?: (action: DesktopAction) => Promise<void>;
   onCancelAction?: (actionId: string) => void;
+  onConfirmTask?: (taskId: string, confirmed: boolean) => void;
+  onCancelTask?: (taskId: string) => void;
 };
 
 export function ActionTimeline({
   plannedActions,
   results,
+  activeTask,
   onConfirmAction,
-  onCancelAction
+  onCancelAction,
+  onConfirmTask,
+  onCancelTask
 }: ActionTimelineProps) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const resultById = new Map(results.map((result) => [result.id, result]));
@@ -28,6 +44,98 @@ export function ActionTimeline({
     }
   }
 
+  // ── Multi-step task panel ────────────────────────────────────────────────
+  if (activeTask) {
+    return (
+      <section className="action-panel" aria-label="Task progress">
+        <div className="section-heading">
+          <Wrench size={18} aria-hidden="true" />
+          <h2>Task</h2>
+          <span className={'task-status-badge task-status-' + activeTask.status}>
+            {activeTask.status}
+          </span>
+        </div>
+
+        <div className="task-goal">
+          <span className="muted">Goal:</span> {activeTask.goal}
+        </div>
+
+        <div className="task-meta muted">
+          Step {activeTask.stepCount} / {activeTask.maxSteps}
+        </div>
+
+        {activeTask.error && (
+          <div className="task-error" role="alert">
+            <AlertTriangle size={14} aria-hidden="true" />
+            {activeTask.error}
+          </div>
+        )}
+
+        {/* Pending confirmation inside task */}
+        {activeTask.pendingConfirmation && onConfirmTask && (
+          <div className="confirmation-box" role="alert">
+            <div className="confirmation-header">
+              <ShieldAlert size={16} className="warn-icon" aria-hidden="true" />
+              <strong>Confirmation required</strong>
+              <span className={'risk-badge risk-' + activeTask.pendingConfirmation.risk}>
+                {activeTask.pendingConfirmation.risk} risk
+              </span>
+            </div>
+            <p className="confirmation-text">{activeTask.pendingConfirmation.reason}</p>
+            <div className="confirmation-actions">
+              <button
+                type="button"
+                className="btn-confirm"
+                onClick={() => onConfirmTask(activeTask.id, true)}
+              >
+                Confirm &amp; Continue
+              </button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => onConfirmTask(activeTask.id, false)}
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Cancel running task */}
+        {(activeTask.status === 'running' || activeTask.status === 'planning') && onCancelTask && (
+          <button
+            type="button"
+            className="btn-cancel task-cancel-btn"
+            onClick={() => onCancelTask(activeTask.id)}
+          >
+            Cancel task
+          </button>
+        )}
+
+        {/* Step-by-step action list */}
+        {activeTask.actions.length > 0 && (
+          <div className="timeline-list">
+            {activeTask.actions.map((action) => {
+              const result = activeTask.results.find((r) => r.id === action.id);
+              return (
+                <TaskActionRow
+                  key={action.id}
+                  action={action}
+                  result={result}
+                  isRunning={
+                    !result &&
+                    (activeTask.status === 'running' || activeTask.status === 'observing')
+                  }
+                />
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  // ── Single-turn action panel (Phase 1 behaviour) ─────────────────────────
   return (
     <section className="action-panel" aria-label="Action progress">
       <div className="section-heading">
@@ -44,8 +152,12 @@ export function ActionTimeline({
               result?.status === 'needs_confirmation' ||
               (!result && action.requiresConfirmation);
 
-            const dataObj = (result?.data && typeof result.data === 'object') ? (result.data as Record<string, unknown>) : undefined;
-            const thumbUrl = (typeof dataObj?.thumbnailBase64 === 'string' ? dataObj.thumbnailBase64 : undefined) ||
+            const dataObj =
+              result?.data && typeof result.data === 'object'
+                ? (result.data as Record<string, unknown>)
+                : undefined;
+            const thumbUrl =
+              (typeof dataObj?.thumbnailBase64 === 'string' ? dataObj.thumbnailBase64 : undefined) ??
               (typeof dataObj?.base64Thumb === 'string' ? dataObj.base64Thumb : undefined);
 
             return (
@@ -55,7 +167,7 @@ export function ActionTimeline({
                   <div className="timeline-info">
                     <strong>{formatActionName(action.action)}</strong>
                     <span className="timeline-summary">
-                      {result?.summary || action.reason || 'Waiting for the local agent.'}
+                      {result?.summary ?? action.reason ?? 'Waiting for the local agent.'}
                     </span>
                   </div>
                 </div>
@@ -67,7 +179,7 @@ export function ActionTimeline({
                       <strong>Confirmation required</strong>
                     </div>
                     <p className="confirmation-text">
-                      {result?.summary || action.reason || `FRIDAY wants to execute ${action.action}.`}
+                      {result?.summary ?? action.reason ?? ('FRIDAY wants to execute ' + action.action + '.')}
                     </p>
                     <div className="confirmation-actions">
                       <button
@@ -94,7 +206,9 @@ export function ActionTimeline({
                   <div className="screenshot-preview">
                     <div className="preview-header">
                       <ImageIcon size={14} aria-hidden="true" />
-                      <span>Desktop Screenshot ({String(dataObj?.width || '')}x{String(dataObj?.height || '')})</span>
+                      <span>
+                        Desktop Screenshot ({String(dataObj?.width ?? '')}x{String(dataObj?.height ?? '')})
+                      </span>
                     </div>
                     <img
                       src={thumbUrl}
@@ -112,6 +226,62 @@ export function ActionTimeline({
     </section>
   );
 }
+
+// ─── Task action row (for multi-step tasks) ───────────────────────────────────
+
+function TaskActionRow({
+  action,
+  result,
+  isRunning
+}: {
+  action: DesktopAction;
+  result?: ActionResult;
+  isRunning: boolean;
+}) {
+  const dataObj =
+    result?.data && typeof result.data === 'object'
+      ? (result.data as Record<string, unknown>)
+      : undefined;
+  const thumbUrl =
+    (typeof dataObj?.thumbnailBase64 === 'string' ? dataObj.thumbnailBase64 : undefined) ??
+    (typeof dataObj?.base64Thumb === 'string' ? dataObj.base64Thumb : undefined);
+
+  return (
+    <div className="timeline-card">
+      <div className="timeline-row">
+        {isRunning ? (
+          <Loader2 className="status-running animate-spin" size={18} aria-hidden="true" />
+        ) : (
+          <StatusIcon status={result?.status} />
+        )}
+        <div className="timeline-info">
+          <strong>{formatActionName(action.action)}</strong>
+          <span className="timeline-summary">
+            {result?.summary ?? action.reason ?? (isRunning ? 'Running…' : 'Queued')}
+          </span>
+        </div>
+      </div>
+      {thumbUrl && (
+        <div className="screenshot-preview">
+          <div className="preview-header">
+            <ImageIcon size={14} aria-hidden="true" />
+            <span>
+              Desktop Screenshot ({String(dataObj?.width ?? '')}x{String(dataObj?.height ?? '')})
+            </span>
+          </div>
+          <img
+            src={thumbUrl}
+            alt="Captured desktop screenshot"
+            className="screenshot-img"
+            loading="lazy"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatActionName(action: string): string {
   return action
