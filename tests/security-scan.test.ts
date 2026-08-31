@@ -4,15 +4,17 @@ import * as path from 'path';
 import { KeyManager } from '../src/backend/models/key-manager';
 import { validateEnvironment } from '../src/backend/config/env-validator';
 import { toPublicModelProvider } from '../src/backend/models/model-registry';
+import { loadLocalEnv } from '../src/shared/load-local-env';
 
 describe('Security Scanning & Credential Protection (Phase 4)', () => {
-  it('ensures .gitignore ignores .env and certificate/key files', () => {
+  it('ensures .gitignore ignores .env, .env.openrouter, and certificate/key files', () => {
     const gitignorePath = path.resolve(__dirname, '../.gitignore');
     const content = fs.readFileSync(gitignorePath, 'utf8');
 
     expect(content).toMatch(/^\.env$/m);
     expect(content).toMatch(/^\.env\.\*$/m);
     expect(content).toMatch(/^!\.env\.example$/m);
+    expect(content).toMatch(/^!\.env\.openrouter\.example$/m);
     expect(content).toMatch(/\*\.key/);
     expect(content).toMatch(/\*\.pem/);
   });
@@ -21,6 +23,19 @@ describe('Security Scanning & Credential Protection (Phase 4)', () => {
     const envExamplePath = path.resolve(__dirname, '../.env.example');
     const content = fs.readFileSync(envExamplePath, 'utf8');
 
+    expect(content).not.toContain('sk-or-v1-');
+    expect(content).toMatch(/OPENROUTER_KEY_1=\s*$/m);
+    expect(content).toMatch(/OPENROUTER_KEY_2=\s*$/m);
+    expect(content).toMatch(/OPENROUTER_KEY_3=\s*$/m);
+    expect(content).toMatch(/OPENROUTER_KEY_4=\s*$/m);
+    expect(content).toMatch(/OPENROUTER_KEY_5=\s*$/m);
+  });
+
+  it('ensures .env.openrouter.example exists and contains only empty placeholders', () => {
+    const envOpenRouterExamplePath = path.resolve(__dirname, '../.env.openrouter.example');
+    expect(fs.existsSync(envOpenRouterExamplePath)).toBe(true);
+
+    const content = fs.readFileSync(envOpenRouterExamplePath, 'utf8');
     expect(content).not.toContain('sk-or-v1-');
     expect(content).toMatch(/OPENROUTER_KEY_1=\s*$/m);
     expect(content).toMatch(/OPENROUTER_KEY_2=\s*$/m);

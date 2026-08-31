@@ -106,25 +106,30 @@ FRIDAY/
 npm install
 ```
 
-### Environment Configuration
+### Environment & OpenRouter Credentials Setup
 
-Copy `.env.example` to `.env`:
+1. Copy `.env.example` to `.env` for general runtime configuration:
+   ```bash
+   cp .env.example .env
+   ```
 
-```bash
-cp .env.example .env
-```
+2. Copy `.env.openrouter.example` to `.env.openrouter` for dedicated OpenRouter credentials:
+   ```bash
+   cp .env.openrouter.example .env.openrouter
+   ```
 
-Set your OpenRouter API keys in `.env` (supports 1 to 5 keys):
+3. Paste up to 5 OpenRouter API keys into `.env.openrouter`:
+   ```env
+   OPENROUTER_KEY_1=sk-or-v1-...   # Dedicated to CODING
+   OPENROUTER_KEY_2=sk-or-v1-...   # Dedicated to FAST
+   OPENROUTER_KEY_3=sk-or-v1-...   # Dedicated to COMPLEX
+   OPENROUTER_KEY_4=sk-or-v1-...   # Dedicated to GRAMMAR
+   OPENROUTER_KEY_5=sk-or-v1-...   # Dedicated to GENERAL
+   ```
 
-```env
-OPENROUTER_KEY_1=sk-or-v1-...   # Used for CODING
-OPENROUTER_KEY_2=sk-or-v1-...   # Used for FAST
-OPENROUTER_KEY_3=sk-or-v1-...   # Used for COMPLEX
-OPENROUTER_KEY_4=sk-or-v1-...   # Used for GRAMMAR
-OPENROUTER_KEY_5=sk-or-v1-...   # Used for GENERAL
-```
-
-> **Note:** You do NOT need to configure model IDs. FRIDAY automatically routes each role to its verified zero-cost free model.
+> **Note:**
+> - You do **NOT** need to enter model IDs or configure model mappings manually. FRIDAY automatically routes each key slot to its predefined zero-cost free model.
+> - The `.env.openrouter` file is ignored by Git and loaded server-side only. Keys are never sent to the browser.
 
 ### Start Development Server
 
