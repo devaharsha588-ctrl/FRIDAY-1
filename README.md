@@ -1,52 +1,188 @@
-# FRIDAY
+# FRIDAY — Desktop AI Assistant
 
-FRIDAY is a website-style AI interface backed by a controlled local desktop agent. The browser never receives model API keys and never performs desktop actions directly.
+FRIDAY is a website-style AI interface backed by a controlled local desktop agent and a secure, multi-model OpenRouter architecture using dedicated role-key slots and zero-cost (`:free`) models.
 
-## Architecture
+The browser never receives model API keys, never executes shell commands, and never interacts with the operating system directly.
 
-- `src/web`: React/Vite interface for chat, task status, action progress, history, and settings.
-- `src/backend`: local orchestrator API. It classifies requests, routes model calls through OpenRouter config, stores conversations, and sends validated actions to the agent.
-- `src/local-agent`: local desktop agent API. It validates action schemas and performs only allowlisted capabilities.
-- `src/shared`: action, task, and response types used across boundaries.
+---
 
-## Run Locally
+## 1. Architecture
+
+```text
+FRIDAY Web UI (React 19 / Vite)
+      ↓ (HTTP / SSE /api/*)
+Backend Orchestrator (Express / Node.js)
+      │
+      ├── Fast Path (Phase 3A: 0 LLM / 0 Screenshots / Direct Execution)
+      │
+      ├── Model Router (Phase 4: Role-Key Slots / OpenRouter Free Models)
+      │        ├── CODING   (Key 1 → poolside/laguna-s-2.1:free)
+      │        ├── FAST     (Key 2 → nvidia/nemotron-3.5-lightning:free)
+      │        ├── COMPLEX  (Key 3 → nvidia/nemotron-3-ultra-550b-a55b:free)
+      │        ├── GRAMMAR  (Key 4 → minimax/minimax-m3:free)
+      │        └── GENERAL  (Key 5 → minimax/minimax-m2.7:free)
+      │
+      └── Task Planner & Executor (Phase 2 & 3B: Autonomous Multi-Step)
+               ↓ (Authenticated Local HTTP)
+Local Desktop Agent (Node.js / Windows UI Automation / Chrome CDP)
+      ↓
+Windows / Applications / Browser
+```
+
+---
+
+## 2. Directory Structure
+
+```text
+FRIDAY/
+├── src/
+│   ├── backend/
+│   │   ├── config/              # Centralized environment validation
+│   │   │   ├── env.ts
+│   │   │   └── env-validator.ts
+│   │   ├── models/              # Phase 4 OpenRouter Multi-Model Architecture
+│   │   │   ├── friday-key-roles.ts
+│   │   │   ├── model-registry.ts
+│   │   │   ├── model-discovery.ts
+│   │   │   ├── model-router.ts
+│   │   │   ├── key-manager.ts
+│   │   │   └── openrouter-client.ts
+│   │   ├── orchestrator/        # Task planning, verification, and recovery
+│   │   │   ├── orchestrator.ts
+│   │   │   ├── planner.ts
+│   │   │   ├── task-executor.ts
+│   │   │   ├── command-router.ts
+│   │   │   ├── direct-action-executor.ts
+│   │   │   ├── action-runner.ts
+│   │   │   ├── action-verifier.ts
+│   │   │   ├── recovery-engine.ts
+│   │   │   ├── confirmation-policy.ts
+│   │   │   └── observation.ts
+│   │   ├── memory/              # Conversation & Task state stores
+│   │   │   ├── conversation-store.ts
+│   │   │   └── task-store.ts
+│   │   ├── agent/               # Backend-to-local-agent HTTP client
+│   │   │   └── agent-client.ts
+│   │   └── index.ts             # Express backend server
+│   ├── local-agent/             # Authenticated local desktop agent
+│   │   ├── adapters/
+│   │   │   ├── windows-adapter.ts   # PowerShell & process automation
+│   │   │   ├── browser-adapter.ts   # Chrome DevTools Protocol (CDP)
+│   │   │   └── ui-automation.ts     # Windows UI Automation (.NET)
+│   │   ├── config.ts
+│   │   ├── executor.ts
+│   │   └── index.ts
+│   ├── shared/                  # Strict Zod schemas & shared contracts
+│   │   ├── action-schema.ts
+│   │   ├── chat-contracts.ts
+│   │   ├── load-local-env.ts
+│   │   └── task-types.ts
+│   └── web/                     # React 19 Frontend
+│       ├── App.tsx
+│       ├── main.tsx
+│       ├── api/fridayApi.ts
+│       ├── components/
+│       │   ├── ActionTimeline.tsx
+│       │   ├── ChatComposer.tsx
+│       │   ├── ConversationRail.tsx
+│       │   ├── SettingsPanel.tsx
+│       │   └── StatusStrip.tsx
+│       └── styles.css
+├── tests/                       # 26 automated Vitest test suites (210 tests)
+├── .env.example
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+---
+
+## 3. Quick Start
+
+### Installation
 
 ```bash
 npm install
+```
+
+### Environment Configuration
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Set your OpenRouter API keys in `.env` (supports 1 to 5 keys):
+
+```env
+OPENROUTER_KEY_1=sk-or-v1-...   # Used for CODING
+OPENROUTER_KEY_2=sk-or-v1-...   # Used for FAST
+OPENROUTER_KEY_3=sk-or-v1-...   # Used for COMPLEX
+OPENROUTER_KEY_4=sk-or-v1-...   # Used for GRAMMAR
+OPENROUTER_KEY_5=sk-or-v1-...   # Used for GENERAL
+```
+
+> **Note:** You do NOT need to configure model IDs. FRIDAY automatically routes each role to its verified zero-cost free model.
+
+### Start Development Server
+
+```bash
 npm run dev
 ```
 
-Then open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173` in your browser.
 
-For real use, copy `.env.example` to `.env`, set a non-default `FRIDAY_AGENT_TOKEN`, configure OpenRouter keys/models, and add any extra apps to `FRIDAY_ALLOWED_APPS`.
+---
 
-## Security Model
+## 4. Phase 4 Predefined Free Model Mapping
 
-- OpenRouter keys are read only by the backend.
-- The browser calls `/api/*`; it does not call the local agent.
-- The backend calls the local agent with `FRIDAY_AGENT_TOKEN`.
-- Desktop actions must pass Zod schemas before execution.
-- App launching is allowlisted.
-- File operations are restricted to `FRIDAY_FILES_ROOT`.
-- Destructive actions return `needs_confirmation` unless explicitly confirmed.
+Every role defaults to a verified `$0/M input, $0/M output` model with bounded same-role fallbacks:
 
-## Current Agent Capabilities
+| Role | Key Slot | Primary Free Model | Fallback Models |
+| :--- | :--- | :--- | :--- |
+| **CODING** | `OPENROUTER_KEY_1` | `poolside/laguna-s-2.1:free` | `cohere/north-mini-code:free`, `poolside/laguna-xs-2.1:free` |
+| **FAST** | `OPENROUTER_KEY_2` | `nvidia/nemotron-3.5-lightning:free` | `liquid/lfm-2.5-2.6b:free` |
+| **COMPLEX** | `OPENROUTER_KEY_3` | `nvidia/nemotron-3-ultra-550b-a55b:free` | `minimax/minimax-m3:free` |
+| **GRAMMAR** | `OPENROUTER_KEY_4` | `minimax/minimax-m3:free` | `thinkingmachines/inkling-small:free` |
+| **GENERAL** | `OPENROUTER_KEY_5` | `minimax/minimax-m2.7:free` | `z-ai/glm-5.2:free` |
 
-Implemented:
+---
 
-- `open_url`
-- `new_tab`
-- `open_app` for allowlisted apps
-- `close_app` for allowlisted apps with confirmation
-- `wait`
-- `file_operation` for list/read/write/mkdir/delete inside the configured root
+## 5. Security & Isolation Guardrails
 
-Defined but intentionally blocked until a UI automation adapter is wired:
+- **Zero Paid Model Policy**: `FRIDAY_ALLOW_PAID_MODELS=false` is enforced in code. FRIDAY will never silently switch to a paid model or incur charges.
+- **Strict Key Isolation**: `OPENROUTER_KEY_1..5` stay strictly inside the backend `KeyManager`. The frontend only receives role names, model names, and public slot identifiers (`key_1`..`key_5`).
+- **Phase 3A Fast Path**: Simple deterministic commands (e.g., `"Open YouTube"`, `"Open Notepad"`, `"Switch to Chrome"`) execute directly with `0 LLM calls, 0 vision calls, 0 screenshots, 0 keys`.
+- **Filesystem Sandbox**: All file operations are restricted to `FRIDAY_FILES_ROOT` with path-traversal prevention.
+- **Destructive Action Confirmation**: High-risk operations (closing applications, deleting files, system modifications) require explicit interactive user confirmation before execution.
+- **Chrome CDP Automation**: Browser automation connects to Chrome debugging port (`9222`) using native DevTools protocol without third-party heavy dependencies.
 
-- `click`
-- `type_text`
-- `keypress`
-- `read_screen`
-- `find_element`
-- `switch_window`
+---
 
+## 6. Testing & Quality Checks
+
+Run all automated test suites (26 suites / 210 tests):
+
+```bash
+npm test
+```
+
+Run TypeScript strict type check:
+
+```bash
+npm run lint
+```
+
+Run production build:
+
+```bash
+npm run build
+```
+
+Run security audit:
+
+```bash
+npm audit
+```
