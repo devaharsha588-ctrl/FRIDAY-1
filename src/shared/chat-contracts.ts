@@ -22,6 +22,9 @@ export type PublicModelProvider = {
   configured: boolean;
   model?: string;
   baseUrl: string;
+  keySlot?: string;
+  free?: boolean;
+  healthy?: boolean;
 };
 
 export type ChatResponse = {

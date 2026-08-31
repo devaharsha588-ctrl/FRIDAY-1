@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { z } from 'zod';
 import { loadLocalEnv } from '../shared/load-local-env';
-import { createModelRegistry, toPublicProvider } from './ai/model-registry';
 import { readBackendEnv, isUsingDefaultAgentToken } from './config/env';
 import { ConversationStore } from './memory/conversation-store';
 import { TaskStore } from './memory/task-store';
@@ -10,25 +9,30 @@ import { handleChat } from './orchestrator/orchestrator';
 import { startTask, cancelTask, resolveConfirmation } from './orchestrator/task-executor';
 import { createActionResult, evaluateActionRisk, parseDesktopAction } from '../shared/action-schema';
 import { executeAgentAction } from './agent/agent-client';
-import type { StreamEvent } from '../shared/chat-contracts';
+import type { PublicModelProvider, StreamEvent } from '../shared/chat-contracts';
+import { ModelRouter } from './models/model-router';
+import { isFridayRole, type FridayRole } from './models/friday-key-roles';
+import { toPublicModelProvider } from './models/model-registry';
 
 loadLocalEnv();
 
 const env = readBackendEnv();
 const store = new ConversationStore();
 const taskStore = new TaskStore();
+const modelRouter = new ModelRouter(env);
+const keyManager = modelRouter.getKeyManager();
 const app = express();
 
 app.use(cors({ origin: ['http://127.0.0.1:5173', 'http://localhost:5173'] }));
 app.use(express.json({ limit: '1mb' }));
 
 const chatRequestSchema = z.object({
-  message: z.string().min(1).max(12000),
+  message: z.string().min(1).max(20000),
   conversationId: z.string().optional()
 });
 
 const startTaskSchema = z.object({
-  goal: z.string().min(1).max(12000),
+  goal: z.string().min(1).max(20000),
   conversationId: z.string().optional()
 });
 
@@ -49,8 +53,51 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/api/models/status', (_req, res) => {
+  const roles = keyManager.getAllRoleStatuses();
+  res.json({ roles });
+});
+
+app.post('/api/models/test', async (req, res) => {
+  try {
+    const role = req.body?.role;
+    if (!role || !isFridayRole(role)) {
+      res.status(400).json({ error: 'Invalid or missing role' });
+      return;
+    }
+
+    const result = await modelRouter.execute({
+      role,
+      messages: [{ role: 'user', content: 'Respond with OK.' }],
+      timeoutMs: 15000
+    });
+
+    res.json({
+      available: true,
+      model: result.model,
+      latencyMs: result.latencyMs,
+      fallbackUsed: result.fallbackUsed
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Model test failed';
+    res.status(502).json({
+      available: false,
+      error: msg
+    });
+  }
+});
+
 app.get('/api/settings/models', (_req, res) => {
-  const providers = Object.values(createModelRegistry()).map(toPublicProvider);
+  const roleKeys: FridayRole[] = ['general', 'coding', 'fast', 'complex', 'grammar'];
+  const providers: PublicModelProvider[] = roleKeys.map((r) => toPublicModelProvider(r, keyManager));
+  providers.push({
+    taskType: 'computer',
+    configured: true,
+    model: 'Local Windows Agent',
+    baseUrl: env.agentUrl,
+    free: true,
+    healthy: true
+  });
   res.json({ providers });
 });
 
@@ -128,15 +175,13 @@ app.post('/api/tasks/stream', async (req, res) => {
 app.post('/api/tasks', (req, res, next) => {
   try {
     const body = startTaskSchema.parse(req.body);
-    // Create task synchronously, run it in background
     const task = taskStore.create(body.goal, body.conversationId);
-    // Fire and forget — callers use GET /api/tasks/:id to poll
     startTask(
       { goal: body.goal, conversationId: body.conversationId },
       {
         agent: { agentUrl: env.agentUrl, agentToken: env.agentToken },
         taskStore,
-        onEvent: () => {/* fire-and-forget; no streaming in this mode */}
+        onEvent: () => {}
       }
     ).catch((error: unknown) => {
       const msg = error instanceof Error ? error.message : 'Task failed';
@@ -189,7 +234,6 @@ app.post('/api/actions/execute', async (req, res, next) => {
     const parsedAction = parseDesktopAction(body.action);
     const riskEval = evaluateActionRisk(parsedAction);
 
-    // If confirmation is required and confirmed flag is not true, block execution safely
     if (riskEval.requiresConfirmation && !parsedAction.confirmed) {
       const startedAt = new Date();
       res.json({
@@ -218,6 +262,7 @@ app.post('/api/chat', async (req, res, next) => {
     const body = chatRequestSchema.parse(req.body);
     const response = await handleChat(body, {
       store,
+      modelRouter,
       agent: {
         agentUrl: env.agentUrl,
         agentToken: env.agentToken
@@ -244,6 +289,7 @@ app.post('/api/chat/stream', async (req, res) => {
     const body = chatRequestSchema.parse(req.body);
     await handleChat(body, {
       store,
+      modelRouter,
       agent: {
         agentUrl: env.agentUrl,
         agentToken: env.agentToken

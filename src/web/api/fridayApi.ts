@@ -39,6 +39,25 @@ export async function fetchModelProviders(): Promise<PublicModelProvider[]> {
   return payload.providers;
 }
 
+export async function fetchModelStatus(): Promise<{ roles: Record<string, unknown> }> {
+  const response = await fetch('/api/models/status');
+  if (!response.ok) throw new Error('Failed to load model status');
+  return response.json();
+}
+
+export async function testModelRole(role: string): Promise<{ available: boolean; model: string; latencyMs: number; fallbackUsed: boolean }> {
+  const response = await fetch('/api/models/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Test failed' }));
+    throw new Error(err.error || 'Model test failed');
+  }
+  return response.json();
+}
+
 export async function executeAction(action: DesktopAction): Promise<ActionResult> {
   const response = await fetch('/api/actions/execute', {
     method: 'POST',

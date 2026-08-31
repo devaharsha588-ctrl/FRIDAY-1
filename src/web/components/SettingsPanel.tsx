@@ -16,20 +16,23 @@ export function SettingsPanel({ providers }: SettingsPanelProps) {
       <div className="setting-block">
         <div className="setting-title">
           <LockKeyhole size={17} aria-hidden="true" />
-          <strong>Secrets</strong>
+          <strong>Secrets & Keys</strong>
         </div>
-        <p className="muted">OpenRouter keys stay in the backend environment and are not exposed here.</p>
+        <p className="muted">5 dedicated role key slots (OPENROUTER_KEY_1..5) stay in the backend environment.</p>
       </div>
       <div className="setting-block">
         <div className="setting-title">
           <Cpu size={17} aria-hidden="true" />
-          <strong>Model routing</strong>
+          <strong>Multi-Model Architecture (100% Free)</strong>
         </div>
         <div className="provider-list">
           {providers.map((provider) => (
-            <div className="provider-row" key={provider.taskType}>
-              <span>{taskTypeLabels[provider.taskType]}</span>
-              <strong className={provider.configured ? 'configured' : 'missing'}>
+            <div className="provider-row" key={provider.taskType} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '6px 0' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span>{taskTypeLabels[provider.taskType] || provider.taskType}</span>
+                {provider.keySlot && <small style={{ color: '#888', fontSize: '0.75rem' }}>{provider.keySlot.toUpperCase()}</small>}
+              </div>
+              <strong className={provider.configured ? 'configured' : 'missing'} style={{ fontSize: '0.85rem' }}>
                 {provider.configured ? provider.model : 'Not configured'}
               </strong>
             </div>
@@ -46,11 +49,10 @@ export function SettingsPanel({ providers }: SettingsPanelProps) {
       <div className="setting-block">
         <div className="setting-title">
           <ShieldCheck size={17} aria-hidden="true" />
-          <strong>Safety</strong>
+          <strong>Safety & Cost Guardrails</strong>
         </div>
-        <p className="muted">Unknown actions, unlisted apps, outside-root file paths, and destructive requests are blocked.</p>
+        <p className="muted">FRIDAY_ALLOW_PAID_MODELS=false is active. Zero cost guaranteed.</p>
       </div>
     </aside>
   );
 }
-

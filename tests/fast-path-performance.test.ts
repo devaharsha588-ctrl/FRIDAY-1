@@ -4,7 +4,7 @@ import { startTask } from '../src/backend/orchestrator/task-executor';
 import { TaskStore } from '../src/backend/memory/task-store';
 import { ConversationStore } from '../src/backend/memory/conversation-store';
 import * as plannerModule from '../src/backend/orchestrator/planner';
-import * as openRouterModule from '../src/backend/ai/openrouter-client';
+import { ModelRouter } from '../src/backend/models/model-router';
 import * as agentClientModule from '../src/backend/agent/agent-client';
 import type { DesktopAction, ActionResult } from '../src/shared/action-schema';
 
@@ -23,7 +23,7 @@ describe('fast-path-performance', () => {
 
   it('"Open YouTube." executes with 0 LLM calls, 0 planner calls, and 0 screenshots', async () => {
     const plannerSpy = vi.spyOn(plannerModule, 'planComputerActions');
-    const llmSpy = vi.spyOn(openRouterModule, 'createOpenRouterCompletion').mockResolvedValue('I am assistant');
+    const routerSpy = vi.spyOn(ModelRouter.prototype, 'execute');
     const agentSpy = vi.spyOn(agentClientModule, 'executeAgentAction').mockResolvedValue({
       id: 'act-1',
       action: 'open_url',
@@ -39,7 +39,7 @@ describe('fast-path-performance', () => {
     );
 
     expect(plannerSpy).not.toHaveBeenCalled();
-    expect(llmSpy).not.toHaveBeenCalled();
+    expect(routerSpy).not.toHaveBeenCalled();
     expect(agentSpy).toHaveBeenCalledOnce();
     expect(agentSpy.mock.calls[0][0].action).toBe('open_url');
     expect(agentSpy.mock.calls[0][0].action).not.toBe('read_screen');
@@ -51,7 +51,7 @@ describe('fast-path-performance', () => {
 
   it('"Open Calculator." executes with 0 LLM calls and 0 screenshots', async () => {
     const plannerSpy = vi.spyOn(plannerModule, 'planComputerActions');
-    const llmSpy = vi.spyOn(openRouterModule, 'createOpenRouterCompletion');
+    const routerSpy = vi.spyOn(ModelRouter.prototype, 'execute');
     const agentSpy = vi.spyOn(agentClientModule, 'executeAgentAction').mockResolvedValue({
       id: 'act-2',
       action: 'open_app',
@@ -67,7 +67,7 @@ describe('fast-path-performance', () => {
     );
 
     expect(plannerSpy).not.toHaveBeenCalled();
-    expect(llmSpy).not.toHaveBeenCalled();
+    expect(routerSpy).not.toHaveBeenCalled();
     expect(agentSpy).toHaveBeenCalledOnce();
     expect(agentSpy.mock.calls[0][0].action).toBe('open_app');
     expect(response.message.content).toBe('Opened Calculator.');
