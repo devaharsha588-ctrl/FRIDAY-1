@@ -18,7 +18,8 @@ import {
 } from './adapters/windows-adapter';
 import {
   BrowserAdapter,
-  createBrowserAdapter
+  createBrowserAdapter,
+  isCdpAvailable
 } from './adapters/browser-adapter';
 import {
   checkProcessExists,
@@ -97,7 +98,7 @@ export async function executeDesktopAction(action: DesktopAction, env: AgentEnv)
         }
         return executeSwitchWindow(action, startedAt);
 
-      case 'type_text':
+      case 'type_text': {
         if (platform() !== 'win32') {
           return createActionResult(
             action,
@@ -107,10 +108,27 @@ export async function executeDesktopAction(action: DesktopAction, env: AgentEnv)
             { error: 'PLATFORM_UNSUPPORTED' }
           );
         }
-        await typeText(action.text);
-        return createActionResult(action, 'success', `Typed text into active window.`, startedAt);
+        const adapter = getBrowserAdapter(env);
+        try {
+          const isReady = await isCdpAvailable(env.chromeDebugPort, 400);
+          if (isReady) {
+            await adapter.connect();
+            for (const char of action.text) {
+              await adapter.pressKey(char);
+            }
+            return createActionResult(action, 'success', `Typed text into active window.`, startedAt);
+          }
+        } catch {}
 
-      case 'keypress':
+        try {
+          await typeText(action.text);
+          return createActionResult(action, 'success', `Typed text into active window.`, startedAt);
+        } catch (err) {
+          return createActionResult(action, 'failed', err instanceof Error ? err.message : String(err), startedAt);
+        }
+      }
+
+      case 'keypress': {
         if (platform() !== 'win32') {
           return createActionResult(
             action,
@@ -120,8 +138,25 @@ export async function executeDesktopAction(action: DesktopAction, env: AgentEnv)
             { error: 'PLATFORM_UNSUPPORTED' }
           );
         }
-        await sendKeypress(action.keys);
-        return createActionResult(action, 'success', `Pressed keys: ${action.keys.join('+')}`, startedAt);
+        const adapter = getBrowserAdapter(env);
+        try {
+          const isReady = await isCdpAvailable(env.chromeDebugPort, 400);
+          if (isReady) {
+            await adapter.connect();
+            for (const key of action.keys) {
+              await adapter.pressKey(key);
+            }
+            return createActionResult(action, 'success', `Pressed keys: ${action.keys.join('+')}`, startedAt);
+          }
+        } catch {}
+
+        try {
+          await sendKeypress(action.keys);
+          return createActionResult(action, 'success', `Pressed keys: ${action.keys.join('+')}`, startedAt);
+        } catch (err) {
+          return createActionResult(action, 'failed', err instanceof Error ? err.message : String(err), startedAt);
+        }
+      }
 
       case 'click':
         if (platform() !== 'win32') {

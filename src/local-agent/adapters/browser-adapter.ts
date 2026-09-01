@@ -41,6 +41,13 @@ export type ManagedChromeOptions = {
   chromePath?: string;
 };
 
+export type BrowserElementQuery = {
+  selector?: string;
+  role?: string;
+  name?: string;
+  text?: string;
+};
+
 /**
  * Searches standard system paths for the Google Chrome executable.
  * Returns null if Chrome cannot be found.
@@ -196,6 +203,211 @@ export async function ensureChromeCdpReady(
     ready: false,
     error: `Chrome DevTools Protocol endpoint at http://127.0.0.1:${config.debugPort} did not become ready within ${timeoutMs}ms.`
   };
+}
+
+/**
+ * Builds the JavaScript expression for layered element discovery across Shadow DOM & dynamic components.
+ */
+export function buildLayeredSearchJs(query: BrowserElementQuery): string {
+  return `
+    (() => {
+      const query = ${JSON.stringify(query)};
+
+      function isVisible(el) {
+        if (!el || !(el instanceof Element)) return false;
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') {
+          return false;
+        }
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      function matchesText(el, targetText) {
+        if (!el || !targetText) return false;
+        const text = (el.textContent || '').trim().toLowerCase();
+        const target = targetText.trim().toLowerCase();
+        return text === target || text.includes(target);
+      }
+
+      function queryAllIncludingShadow(root, selector) {
+        let results = [];
+        try {
+          if (root.querySelectorAll) {
+            results = Array.from(root.querySelectorAll(selector));
+          }
+        } catch {}
+
+        const allElements = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+        for (const el of allElements) {
+          if (el.shadowRoot) {
+            results = results.concat(queryAllIncludingShadow(el.shadowRoot, selector));
+          }
+        }
+        return results;
+      }
+
+      function searchElementInRoot(root) {
+        // 1. Direct custom CSS selector if provided
+        if (query.selector) {
+          try {
+            const matches = queryAllIncludingShadow(root, query.selector);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+            if (matches.length > 0) return matches[0];
+          } catch {}
+        }
+
+        // 2. Semantic Search Box detection
+        const isSearchQuery =
+          (query.role && /search|combobox/i.test(query.role)) ||
+          (query.name && /search|query|find|searchbox/i.test(query.name)) ||
+          (query.text && /search/i.test(query.text)) ||
+          (query.selector && /search/i.test(query.selector));
+
+        if (isSearchQuery) {
+          const searchSelectors = [
+            'input[name="search_query"]',
+            'input[name="q"]',
+            'input[name="query"]',
+            'input[name="search"]',
+            'input[name="searchTerm"]',
+            'input[name="search_term"]',
+            'input[name="keywords"]',
+            'input#search',
+            'input#search-input',
+            'input#search_query',
+            'input#query',
+            'input[type="search"]',
+            'input[placeholder*="Search" i]',
+            'textarea[placeholder*="Search" i]',
+            'input[aria-label*="Search" i]',
+            'textarea[aria-label*="Search" i]',
+            'ytd-searchbox input',
+            'yt-searchbox input',
+            'input.yt-searchbox-input',
+            '[role="searchbox"]',
+            '[role="combobox"] input',
+            '[role="combobox"][placeholder*="Search" i]',
+            'form[action*="search" i] input:not([type="hidden"])',
+            'input[type="text"]'
+          ];
+          for (const sel of searchSelectors) {
+            const matches = queryAllIncludingShadow(root, sel);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+          }
+        }
+
+        // 3. Accessibility Role + Name combination
+        if (query.role && query.name) {
+          const comboSelectors = [
+            \`[role="\${query.role}"][aria-label*="\${query.name}" i]\`,
+            \`[role="\${query.role}"][placeholder*="\${query.name}" i]\`,
+            \`[role="\${query.role}"][name*="\${query.name}" i]\`,
+            \`[role="\${query.role}"][title*="\${query.name}" i]\`
+          ];
+          for (const sel of comboSelectors) {
+            const matches = queryAllIncludingShadow(root, sel);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+          }
+        }
+
+        // 4. aria-label
+        if (query.name || query.text) {
+          const targetStr = query.name || query.text;
+          const ariaSelectors = [
+            \`[aria-label="\${targetStr}" i]\`,
+            \`[aria-label*="\${targetStr}" i]\`,
+            \`[aria-placeholder*="\${targetStr}" i]\`
+          ];
+          for (const sel of ariaSelectors) {
+            const matches = queryAllIncludingShadow(root, sel);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+          }
+        }
+
+        // 5. Name / ID / TestID attributes
+        if (query.name) {
+          const attrSelectors = [
+            \`[name="\${query.name}" i]\`,
+            \`[name*="\${query.name}" i]\`,
+            \`[id="\${query.name}" i]\`,
+            \`[id*="\${query.name}" i]\`,
+            \`[data-testid*="\${query.name}" i]\`,
+            \`[placeholder*="\${query.name}" i]\`,
+            \`[title*="\${query.name}" i]\`
+          ];
+          for (const sel of attrSelectors) {
+            const matches = queryAllIncludingShadow(root, sel);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+          }
+        }
+
+        // 6. Role-specific element matching
+        if (query.role) {
+          const roleSelectors = [
+            \`[role="\${query.role}" i]\`
+          ];
+          if (query.role === 'button') {
+            roleSelectors.push('button', 'input[type="button"]', 'input[type="submit"]', 'a.btn', 'a.button');
+          } else if (query.role === 'textbox') {
+            roleSelectors.push('input[type="text"]', 'textarea', '[contenteditable="true"]');
+          } else if (query.role === 'link') {
+            roleSelectors.push('a[href]');
+          }
+          for (const sel of roleSelectors) {
+            const matches = queryAllIncludingShadow(root, sel);
+            const visible = matches.find(isVisible);
+            if (visible) return visible;
+          }
+        }
+
+        // 7. Visible text matching for buttons, links, and leaf elements
+        if (query.text || query.name) {
+          const targetText = query.text || query.name;
+          const candidates = queryAllIncludingShadow(root, 'button, a, input[type="submit"], input[type="button"], span, div, p, label, li');
+          const matchingText = candidates.filter((el) => isVisible(el) && matchesText(el, targetText));
+          if (matchingText.length > 0) {
+            matchingText.sort((a, b) => a.children.length - b.children.length);
+            return matchingText[0];
+          }
+        }
+
+        return null;
+      }
+
+      const el = searchElementInRoot(document);
+      if (!el) return null;
+
+      // Scroll into view & focus
+      try {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        if (typeof el.focus === 'function') {
+          el.focus();
+        }
+      } catch {}
+
+      const rect = el.getBoundingClientRect();
+      return {
+        nodeId: 0,
+        selector: el.tagName.toLowerCase() + (el.id ? '#' + el.id : el.name ? '[name="' + el.name + '"]' : ''),
+        tagName: el.tagName.toLowerCase(),
+        text: (el.textContent || '').trim().slice(0, 100),
+        role: el.getAttribute('role') || '',
+        name: el.getAttribute('name') || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '',
+        bounds: {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height
+        }
+      };
+    })()
+  `;
 }
 
 export class BrowserAdapter {
@@ -418,83 +630,55 @@ export class BrowserAdapter {
     return res.result.value;
   }
 
-  async findElement(query: {
-    selector?: string;
-    role?: string;
-    name?: string;
-    text?: string;
-  }): Promise<BrowserElementInfo | null> {
-    const jsQuery = `
-      (() => {
-        let el = null;
-        if (${JSON.stringify(query.selector)}) {
-          el = document.querySelector(${JSON.stringify(query.selector)});
-        } else if (${JSON.stringify(query.role)}) {
-          el = document.querySelector('[role="${query.role}"]');
-        } else if (${JSON.stringify(query.name)}) {
-          el = document.querySelector('[name="${query.name}"], [aria-label="${query.name}"], [placeholder="${query.name}"]');
-        } else if (${JSON.stringify(query.text)}) {
-          const elements = Array.from(document.querySelectorAll('*'));
-          el = elements.find(e => e.children.length === 0 && e.textContent && e.textContent.includes(${JSON.stringify(query.text)}));
-        }
-        
-        if (!el) return null;
-        
-        const rect = el.getBoundingClientRect();
-        return {
-          nodeId: 0,
-          selector: el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''),
-          tagName: el.tagName.toLowerCase(),
-          text: el.textContent || '',
-          role: el.getAttribute('role') || '',
-          name: el.getAttribute('name') || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '',
-          bounds: {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height
-          }
-        };
-      })()
-    `;
-
+  /**
+   * Layered adaptive element search with bounded polling.
+   */
+  async findElement(
+    query: BrowserElementQuery,
+    timeoutMs = 4000
+  ): Promise<BrowserElementInfo | null> {
     type EvalResult = { result: { value: BrowserElementInfo | null } };
-    try {
-      const res = await this.sendCdpCommand<EvalResult>('Runtime.evaluate', {
-        expression: jsQuery,
-        returnByValue: true
-      });
-      return res.result.value;
-    } catch {
-      return null;
+    const startTime = Date.now();
+    const pollInterval = 250;
+    const expression = buildLayeredSearchJs(query);
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const res = await this.sendCdpCommand<EvalResult>('Runtime.evaluate', {
+          expression,
+          returnByValue: true
+        });
+        if (res?.result?.value) {
+          return res.result.value;
+        }
+      } catch {
+        // Ignore temporary DOM evaluation errors during transitions
+      }
+
+      if (timeoutMs <= pollInterval) break;
+      await new Promise((r) => setTimeout(r, pollInterval));
     }
+
+    return null;
   }
 
-  async clickElement(query: {
-    selector?: string;
-    role?: string;
-    name?: string;
-    text?: string;
-  }): Promise<{ success: boolean; error?: string }> {
-    const jsQuery = `
+  /**
+   * Finds, focuses, and clicks an element using layered discovery.
+   */
+  async clickElement(
+    query: BrowserElementQuery,
+    timeoutMs = 4000
+  ): Promise<{ success: boolean; error?: string }> {
+    const found = await this.findElement(query, timeoutMs);
+    if (!found) {
+      return { success: false, error: 'Element not found' };
+    }
+
+    // Scroll, focus, and click directly via DOM event
+    const clickScript = `
       (() => {
-        let el = null;
-        if (${JSON.stringify(query.selector)}) {
-          el = document.querySelector(${JSON.stringify(query.selector)});
-        } else if (${JSON.stringify(query.role)}) {
-          el = document.querySelector('[role="${query.role}"]');
-        } else if (${JSON.stringify(query.name)}) {
-          el = document.querySelector('[name="${query.name}"], [aria-label="${query.name}"], [placeholder="${query.name}"]');
-        } else if (${JSON.stringify(query.text)}) {
-          const elements = Array.from(document.querySelectorAll('*'));
-          el = elements.find(e => e.children.length === 0 && e.textContent && e.textContent.includes(${JSON.stringify(query.text)}));
-        }
-        
-        if (!el) return 'Element not found';
-        
-        el.scrollIntoView({ block: 'center' });
-        el.focus();
-        el.click();
+        const info = ${buildLayeredSearchJs(query)};
+        if (!info) return 'Element not found';
         return null;
       })()
     `;
@@ -502,11 +686,11 @@ export class BrowserAdapter {
     type EvalResult = { result: { value: string | null } };
     try {
       const res = await this.sendCdpCommand<EvalResult>('Runtime.evaluate', {
-        expression: jsQuery,
+        expression: clickScript,
         returnByValue: true
       });
-      const error = res.result.value;
-      if (error) {
+      const error = res?.result?.value;
+      if (error && typeof error === 'string') {
         return { success: false, error };
       }
       return { success: true };
@@ -515,11 +699,15 @@ export class BrowserAdapter {
     }
   }
 
+  /**
+   * Finds, focuses, and types text into an element.
+   */
   async typeIntoElement(
-    query: { selector?: string; role?: string; name?: string; text?: string },
-    text: string
+    query: BrowserElementQuery,
+    text: string,
+    timeoutMs = 4000
   ): Promise<{ success: boolean; error?: string }> {
-    const focusResult = await this.clickElement(query);
+    const focusResult = await this.clickElement(query, timeoutMs);
     if (!focusResult.success) {
       return focusResult;
     }
@@ -530,7 +718,7 @@ export class BrowserAdapter {
           type: 'char',
           text: char
         });
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 40));
       }
       return { success: true };
     } catch (err) {
@@ -542,6 +730,7 @@ export class BrowserAdapter {
     const mapKeyToCode = (k: string) => {
       const map: Record<string, string> = {
         Enter: 'Enter',
+        enter: 'Enter',
         Backspace: 'Backspace',
         Tab: 'Tab',
         Escape: 'Escape'
@@ -561,6 +750,7 @@ export class BrowserAdapter {
         type: 'keyDown',
         key: code
       });
+      await new Promise((r) => setTimeout(r, 50));
       await this.sendCdpCommand('Input.dispatchKeyEvent', {
         type: 'keyUp',
         key: code
@@ -588,20 +778,10 @@ export class BrowserAdapter {
   }
 
   async waitForElement(
-    query: { selector?: string; role?: string; name?: string; text?: string },
+    query: BrowserElementQuery,
     timeoutMs = 10000
   ): Promise<BrowserElementInfo | null> {
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeoutMs) {
-      const el = await this.findElement(query);
-      if (el) {
-        return el;
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
-    return null;
+    return this.findElement(query, timeoutMs);
   }
 
   disconnect(): void {
