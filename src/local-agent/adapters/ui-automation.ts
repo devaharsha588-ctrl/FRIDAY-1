@@ -325,11 +325,18 @@ export async function waitForWindow(processName: string, timeoutMs: number = 500
 }
 
 export async function checkProcessExists(processName: string): Promise<boolean> {
-  const script = `Get-Process -Name "${processName}" -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count`;
+  const clean = processName.trim().replace(/\.exe$/i, '');
+  const script = `
+$q = "${clean}"
+$matched = Get-Process | Where-Object { 
+  $_.ProcessName -like "*$q*" -or 
+  ($_.MainWindowTitle -and $_.MainWindowTitle -like "*$q*") 
+}
+if ($matched) { "1" } else { "0" }
+`.trim();
   try {
     const stdout = await runPowerShell(script);
-    const count = parseInt(stdout.trim(), 10);
-    return count > 0;
+    return stdout.trim() === '1';
   } catch (e) {
     return false;
   }

@@ -136,9 +136,9 @@ async function executeLoop(
   }
 
   if (plannedActions.length === 0) {
-    // Nothing to execute — treat as completed with a note
-    const updated = taskStore.updateStatus(taskId, 'completed');
-    if (updated) onEvent({ type: 'task_completed', task: snapshot(updated) });
+    // Zero-step completion prevention: unplannable requests fail clearly instead of reporting 0-step success
+    const updated = taskStore.updateStatus(taskId, 'failed', `No executable desktop actions could be planned for: "${goal}".`);
+    if (updated) onEvent({ type: 'task_failed', task: snapshot(updated) });
     return;
   }
 
@@ -150,11 +150,12 @@ async function executeLoop(
   const verificationContext: VerificationContext = {
     checkProcessExists: async (processName: string) => {
       try {
+        const cleanName = processName.trim().replace(/\.exe$/i, '');
         const res = await runAction(
           {
             id: nanoid(),
             action: 'find_window',
-            query: processName,
+            query: cleanName,
             risk: 'low',
             requiresConfirmation: false
           },
@@ -168,11 +169,12 @@ async function executeLoop(
     },
     findWindows: async (query: string) => {
       try {
+        const cleanQuery = query.trim().replace(/\.exe$/i, '');
         const res = await runAction(
           {
             id: nanoid(),
             action: 'find_window',
-            query,
+            query: cleanQuery,
             risk: 'low',
             requiresConfirmation: false
           },

@@ -163,4 +163,51 @@ describe('task-executor', () => {
     expect(stored).toBeDefined();
     expect(stored?.status).toBe('completed');
   });
+
+  it('completes direct "open wikipedia" command with exactly 1 step', async () => {
+    const task = await startTask(
+      { goal: 'open wikipedia' },
+      { agent: fakeAgent, taskStore: store, onEvent, runAction: successRunner('open_url') }
+    );
+    expect(task.status).toBe('completed');
+    expect(task.stepCount).toBe(1);
+    expect(task.actions.length).toBe(1);
+    expect(task.results.length).toBe(1);
+  });
+
+  it('completes direct "open chatgpt" command with exactly 1 step', async () => {
+    const task = await startTask(
+      { goal: 'open chatgpt' },
+      { agent: fakeAgent, taskStore: store, onEvent, runAction: successRunner('open_url') }
+    );
+    expect(task.status).toBe('completed');
+    expect(task.stepCount).toBe(1);
+    expect(task.actions.length).toBe(1);
+  });
+
+  it('completes direct "open notepad" command with exactly 1 step', async () => {
+    const task = await startTask(
+      { goal: 'open notepad' },
+      {
+        agent: fakeAgent,
+        taskStore: store,
+        onEvent,
+        runAction: successRunner('open_app'),
+        verificationContext: { checkProcessExists: async () => true }
+      }
+    );
+    expect(task.status).toBe('completed');
+    expect(task.stepCount).toBe(1);
+    expect(task.actions.length).toBe(1);
+  });
+
+  it('fails gracefully instead of completing with 0 steps when no actions can be planned', async () => {
+    const task = await startTask(
+      { goal: 'some totally unplannable gibberish 12345' },
+      { agent: fakeAgent, taskStore: store, onEvent, runAction: successRunner('ok') }
+    );
+    expect(task.status).toBe('failed');
+    expect(eventTypes()).toContain('task_failed');
+    expect(eventTypes()).not.toContain('task_completed');
+  });
 });

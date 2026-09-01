@@ -57,12 +57,32 @@ describe('action-verifier', () => {
         vi.mocked(ctx.checkProcessExists).mockResolvedValue(false);
         const action: DesktopAction = { id: '1', action: 'open_app', appName: 'notepad' };
         const result = mockResult('success');
+        process.env.FRIDAY_APP_START_TIMEOUT_MS = '50';
+        process.env.FRIDAY_APP_START_POLL_MS = '10';
         const res = await verifyAction(action, result, ctx);
         expect(res).toEqual({
           verified: false,
           observation: 'Process notepad is not running',
           confidence: 'high',
           retryable: true
+        });
+      });
+
+      it('verifies when process appears after initial poll delay', async () => {
+        const ctx = mockContext();
+        vi.mocked(ctx.checkProcessExists)
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+        const action: DesktopAction = { id: '1', action: 'open_app', appName: 'notepad' };
+        const result = mockResult('success');
+        process.env.FRIDAY_APP_START_TIMEOUT_MS = '1000';
+        process.env.FRIDAY_APP_START_POLL_MS = '20';
+        const res = await verifyAction(action, result, ctx);
+        expect(res).toEqual({
+          verified: true,
+          observation: 'Process notepad is running',
+          confidence: 'high',
+          retryable: false
         });
       });
     });

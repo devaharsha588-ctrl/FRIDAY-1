@@ -30,7 +30,25 @@ describe('command-router', () => {
       expect(r.isSimple).toBe(true);
       if (r.isSimple) {
         expect(r.action.action).toBe('open_url');
-        expect((r.action as any).url).toBe('https://github.com/');
+        expect((r.action as any).url).toBe('https://github.com');
+      }
+    });
+
+    it('recognizes wikipedia', () => {
+      const r = routeSimpleCommand('open wikipedia');
+      expect(r.isSimple).toBe(true);
+      if (r.isSimple) {
+        expect(r.action.action).toBe('open_url');
+        expect((r.action as any).url).toBe('https://www.wikipedia.org');
+      }
+    });
+
+    it('recognizes chatgpt', () => {
+      const r = routeSimpleCommand('open chatgpt');
+      expect(r.isSimple).toBe(true);
+      if (r.isSimple) {
+        expect(r.action.action).toBe('open_url');
+        expect((r.action as any).url).toBe('https://chatgpt.com');
       }
     });
 

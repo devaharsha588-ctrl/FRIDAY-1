@@ -362,11 +362,12 @@ Start-Sleep -Milliseconds 30
 export async function findWindows(query: string): Promise<WindowInfo[]> {
   const queryB64 = Buffer.from((query || '').trim(), 'utf8').toString('base64');
   const script = `
-$q = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${queryB64}'))
+$q = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${queryB64}')).Trim()
+$cleanQ = $q -replace '\\.exe$', ''
 
 Get-Process | Where-Object { 
-  $_.MainWindowHandle -ne [IntPtr]::Zero -and 
-  ($_.MainWindowTitle -like "*$q*" -or $_.ProcessName -like "*$q*")
+  ($_.MainWindowTitle -and $_.MainWindowTitle -like "*$cleanQ*") -or 
+  ($_.ProcessName -and $_.ProcessName -like "*$cleanQ*")
 } | Select-Object -Property MainWindowTitle, ProcessName, Id | ConvertTo-Json -Compress
 `.trim();
 
@@ -377,7 +378,7 @@ Get-Process | Where-Object {
     const parsed = JSON.parse(output);
     const items = Array.isArray(parsed) ? parsed : [parsed];
     return items.map((item: { MainWindowTitle?: string; ProcessName?: string; Id?: number }) => ({
-      title: item.MainWindowTitle || '',
+      title: item.MainWindowTitle || item.ProcessName || '',
       processName: item.ProcessName || '',
       processId: item.Id || 0
     }));

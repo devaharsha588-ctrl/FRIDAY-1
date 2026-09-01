@@ -62,12 +62,20 @@ export async function verifyAction(
 
   switch (action.action) {
     case 'open_app': {
-      const exists = await context.checkProcessExists(action.appName);
-      if (exists) {
-        return { verified: true, observation: `Process ${action.appName} is running`, confidence: 'high', retryable: false };
-      } else {
-        return { verified: false, observation: `Process ${action.appName} is not running`, confidence: 'high', retryable: true };
+      const timeoutMs = parseInt(process.env.FRIDAY_APP_START_TIMEOUT_MS ?? '5000', 10);
+      const pollIntervalMs = parseInt(process.env.FRIDAY_APP_START_POLL_MS ?? '300', 10);
+      const startTime = Date.now();
+
+      while (Date.now() - startTime <= timeoutMs) {
+        const exists = await context.checkProcessExists(action.appName);
+        if (exists) {
+          return { verified: true, observation: `Process ${action.appName} is running`, confidence: 'high', retryable: false };
+        }
+        if (Date.now() - startTime + pollIntervalMs > timeoutMs) break;
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
       }
+
+      return { verified: false, observation: `Process ${action.appName} is not running`, confidence: 'high', retryable: true };
     }
 
     case 'open_url':
@@ -96,12 +104,20 @@ export async function verifyAction(
     }
 
     case 'close_app': {
-      const exists = await context.checkProcessExists(action.appName);
-      if (!exists) {
-        return { verified: true, observation: `Process ${action.appName} is not running`, confidence: 'high', retryable: false };
-      } else {
-        return { verified: false, observation: `Process ${action.appName} is still running`, confidence: 'high', retryable: true };
+      const timeoutMs = parseInt(process.env.FRIDAY_APP_START_TIMEOUT_MS ?? '5000', 10);
+      const pollIntervalMs = parseInt(process.env.FRIDAY_APP_START_POLL_MS ?? '300', 10);
+      const startTime = Date.now();
+
+      while (Date.now() - startTime <= timeoutMs) {
+        const exists = await context.checkProcessExists(action.appName);
+        if (!exists) {
+          return { verified: true, observation: `Process ${action.appName} is not running`, confidence: 'high', retryable: false };
+        }
+        if (Date.now() - startTime + pollIntervalMs > timeoutMs) break;
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
       }
+
+      return { verified: false, observation: `Process ${action.appName} is still running`, confidence: 'high', retryable: true };
     }
 
     case 'switch_window': {

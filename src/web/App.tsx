@@ -299,20 +299,26 @@ export function App() {
         );
         setStatus('Task resumed');
         break;
-      case 'task_completed':
+      case 'task_completed': {
         setActiveTask(event.task);
         setStatus('Task complete');
+        const count = Math.max(event.task.stepCount, event.task.actions.length, event.task.results.length, 1);
+        let completionText = 'Task completed in ' + String(count) + ' step' + (count === 1 ? '' : 's') + '.';
+        if (count === 1 && event.task.results.length === 1 && event.task.results[0].summary) {
+          completionText = event.task.results[0].summary;
+        }
         setMessages((current) => [
           ...current,
           {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content: 'Task completed in ' + String(event.task.stepCount) + ' step' + (event.task.stepCount === 1 ? '' : 's') + '.',
+            content: completionText,
             createdAt: new Date().toISOString()
           }
         ]);
         void refreshConversations();
         break;
+      }
       case 'task_failed':
         setActiveTask(event.task);
         setStatus('Task failed');

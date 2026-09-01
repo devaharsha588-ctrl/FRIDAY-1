@@ -15,15 +15,26 @@ export type SimpleRouteResult =
 
 const KNOWN_SITES: Record<string, { url: string; name: string }> = {
   youtube: { url: 'https://www.youtube.com', name: 'YouTube' },
+  netflix: { url: 'https://www.netflix.com', name: 'Netflix' },
+  wikipedia: { url: 'https://www.wikipedia.org', name: 'Wikipedia' },
+  chatgpt: { url: 'https://chatgpt.com', name: 'ChatGPT' },
+  gemini: { url: 'https://gemini.google.com', name: 'Google Gemini' },
+  claude: { url: 'https://claude.ai', name: 'Claude' },
   gmail: { url: 'https://mail.google.com', name: 'Gmail' },
   github: { url: 'https://github.com', name: 'GitHub' },
   google: { url: 'https://www.google.com', name: 'Google' },
   reddit: { url: 'https://www.reddit.com', name: 'Reddit' },
   x: { url: 'https://x.com', name: 'X' },
   twitter: { url: 'https://x.com', name: 'Twitter' },
-  wikipedia: { url: 'https://www.wikipedia.org', name: 'Wikipedia' },
   amazon: { url: 'https://www.amazon.com', name: 'Amazon' },
-  netflix: { url: 'https://www.netflix.com', name: 'Netflix' }
+  bing: { url: 'https://www.bing.com', name: 'Bing' },
+  duckduckgo: { url: 'https://duckduckgo.com', name: 'DuckDuckGo' },
+  twitch: { url: 'https://www.twitch.tv', name: 'Twitch' },
+  whatsapp: { url: 'https://web.whatsapp.com', name: 'WhatsApp' },
+  discord: { url: 'https://discord.com', name: 'Discord' },
+  figma: { url: 'https://www.figma.com', name: 'Figma' },
+  stackoverflow: { url: 'https://stackoverflow.com', name: 'Stack Overflow' },
+  linkedin: { url: 'https://www.linkedin.com', name: 'LinkedIn' }
 };
 
 const KNOWN_APPS: Record<string, { appName: string; name: string }> = {
@@ -31,6 +42,8 @@ const KNOWN_APPS: Record<string, { appName: string; name: string }> = {
   calc: { appName: 'calculator', name: 'Calculator' },
   notepad: { appName: 'notepad', name: 'Notepad' },
   chrome: { appName: 'chrome', name: 'Chrome' },
+  browser: { appName: 'chrome', name: 'Chrome' },
+  'google chrome': { appName: 'chrome', name: 'Chrome' },
   vscode: { appName: 'vscode', name: 'Visual Studio Code' },
   code: { appName: 'vscode', name: 'Visual Studio Code' },
   'visual studio code': { appName: 'vscode', name: 'Visual Studio Code' },
@@ -112,12 +125,13 @@ export function routeSimpleCommand(rawInput: string): SimpleRouteResult {
   }
 
 
-  // ── 4. Known Website Shortcuts (e.g. "open youtube", "go to github") ───────
-  const openSiteMatch = lower.match(/^(?:open|go\s+to|navigate\s+to|launch|start)\s+([a-z0-9_-]+)$/);
+  // ── 4. Known Website Shortcuts (e.g. "open youtube", "open wikipedia", "open chatgpt") ──
+  const openSiteMatch = lower.match(/^(?:open|go\s+to|navigate\s+to|launch|start)\s+(?:the\s+)?([a-z0-9._-]+)(?:\s+(?:website|webpage|page|site))?$/);
   if (openSiteMatch) {
-    const siteKey = openSiteMatch[1];
-    if (KNOWN_SITES[siteKey]) {
-      const site = KNOWN_SITES[siteKey];
+    const rawKey = openSiteMatch[1];
+    const siteKey = rawKey.replace(/\.(?:com|org|net|io|ai|tv|co|gov|edu)$/i, '');
+    const site = KNOWN_SITES[siteKey] || KNOWN_SITES[rawKey];
+    if (site) {
       const action = parseDesktopAction({
         id: nanoid(),
         action: 'open_url',
@@ -161,7 +175,7 @@ export function routeSimpleCommand(rawInput: string): SimpleRouteResult {
   }
 
   // ── 6. Known Applications (e.g. "open calculator", "open chrome") ──────────
-  const appCmdMatch = lower.match(/^(?:open|launch|start)\s+(.+)$/);
+  const appCmdMatch = lower.match(/^(?:open|launch|start)\s+(?:the\s+)?(.+?)(?:\s+app|\s+application)?$/);
   if (appCmdMatch) {
     const appKey = appCmdMatch[1].trim();
     if (KNOWN_APPS[appKey]) {

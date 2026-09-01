@@ -7,15 +7,24 @@ const urlPattern = /\bhttps?:\/\/[^\s"'<>]+/i;
 
 const PLANNER_SITES: Record<string, string> = {
   youtube: 'https://www.youtube.com',
+  netflix: 'https://www.netflix.com',
+  wikipedia: 'https://www.wikipedia.org',
+  chatgpt: 'https://chatgpt.com',
+  gemini: 'https://gemini.google.com',
+  claude: 'https://claude.ai',
   gmail: 'https://mail.google.com',
   github: 'https://github.com',
   google: 'https://www.google.com',
   reddit: 'https://www.reddit.com',
   x: 'https://x.com',
   twitter: 'https://x.com',
-  wikipedia: 'https://www.wikipedia.org',
   amazon: 'https://www.amazon.com',
-  netflix: 'https://www.netflix.com',
+  bing: 'https://www.bing.com',
+  duckduckgo: 'https://duckduckgo.com',
+  twitch: 'https://www.twitch.tv',
+  whatsapp: 'https://web.whatsapp.com',
+  discord: 'https://discord.com',
+  figma: 'https://www.figma.com',
   stackoverflow: 'https://stackoverflow.com',
   linkedin: 'https://www.linkedin.com'
 };
@@ -114,6 +123,45 @@ export function planComputerActions(input: string): DesktopAction[] {
     }
   }
 
+  // ── Single-step direct site open (e.g. "open wikipedia", "open chatgpt", "open netflix") ──
+  const openSiteOnlyMatch = lower.match(/^(?:open|launch)\s+(?:the\s+)?([a-z0-9._-]+)(?:\s+(?:website|webpage|page|site))?$/);
+  if (openSiteOnlyMatch) {
+    const rawKey = openSiteOnlyMatch[1];
+    const siteKey = rawKey.replace(/\.(?:com|org|net|io|ai|tv|co|gov|edu)$/i, '');
+    const siteUrl = resolveSiteUrl(siteKey) || resolveSiteUrl(rawKey) || (rawKey.includes('.') ? 'https://' + rawKey : null);
+    if (siteUrl) {
+      rawActions.push({
+        id: nanoid(),
+        action: 'open_url',
+        url: siteUrl,
+        risk: 'low',
+        requiresConfirmation: false,
+        reason: 'Open ' + (siteKey.charAt(0).toUpperCase() + siteKey.slice(1)) + '.'
+      });
+      return rawActions.map(parseDesktopAction);
+    }
+  }
+
+  // ── Single-step direct app open (e.g. "open notepad", "open calculator", "open chrome", "open spotify") ──
+  const appMatch = lower.match(/^(?:open|launch|start)\s+(?:the\s+)?(notepad|calculator|calc|chrome|browser|google\s+chrome|vscode|code|visual\s+studio\s+code|spotify|explorer|file\s+explorer|terminal|powershell|cmd)(?:\s+app|\s+application)?$/);
+  if (appMatch) {
+    const rawName = appMatch[1].trim();
+    let appName = rawName;
+    if (appName === 'calc') appName = 'calculator';
+    if (appName === 'browser' || appName === 'google chrome') appName = 'chrome';
+    if (appName === 'code' || appName === 'visual studio code') appName = 'vscode';
+    if (appName === 'file explorer') appName = 'explorer';
+    rawActions.push({
+      id: nanoid(),
+      action: 'open_app',
+      appName,
+      risk: 'low',
+      requiresConfirmation: false,
+      reason: 'The request asks FRIDAY to open an allowlisted desktop application.'
+    });
+    return rawActions.map(parseDesktopAction);
+  }
+
   // Open URL or Tab
   const url = text.match(urlPattern)?.[0];
   if (url && /\b(open|launch|go to|navigate|new tab)\b/i.test(text)) {
@@ -124,19 +172,6 @@ export function planComputerActions(input: string): DesktopAction[] {
       risk: 'low',
       requiresConfirmation: false,
       reason: 'The request asks FRIDAY to open a web destination.'
-    });
-  }
-
-  // Open App
-  const appMatch = lower.match(/\bopen\s+(notepad|calculator|calc)\b/);
-  if (appMatch) {
-    rawActions.push({
-      id: nanoid(),
-      action: 'open_app',
-      appName: appMatch[1] === 'calc' ? 'calculator' : appMatch[1],
-      risk: 'low',
-      requiresConfirmation: false,
-      reason: 'The request asks FRIDAY to open an allowlisted desktop application.'
     });
   }
 
