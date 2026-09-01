@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { BrowserAdapter, createBrowserAdapter } from '../src/local-agent/adapters/browser-adapter';
+import {
+  BrowserAdapter,
+  createBrowserAdapter,
+  findChromeExecutable,
+  isCdpAvailable,
+  ensureChromeCdpReady,
+  launchManagedChrome
+} from '../src/local-agent/adapters/browser-adapter';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -80,7 +87,7 @@ class MockWebSocket {
   }
 }
 
-describe('BrowserAdapter and createBrowserAdapter', () => {
+describe('BrowserAdapter and Chrome CDP Readiness', () => {
   let fetchMock: Mock;
 
   beforeEach(() => {
@@ -95,6 +102,75 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  describe('findChromeExecutable', () => {
+    it('returns custom path if it exists', () => {
+      // Test with custom path that exists
+      const selfPath = process.execPath;
+      expect(findChromeExecutable(selfPath)).toBe(selfPath);
+    });
+
+    it('returns string or null for system lookup', () => {
+      const found = findChromeExecutable();
+      expect(found === null || typeof found === 'string').toBe(true);
+    });
+  });
+
+  describe('isCdpAvailable', () => {
+    it('returns true when endpoint responds with 200 ok', async () => {
+      fetchMock.mockResolvedValue({ ok: true });
+      const ready = await isCdpAvailable(9222);
+      expect(ready).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:9222/json/version',
+        expect.anything()
+      );
+    });
+
+    it('returns false when fetch rejects (connection refused)', async () => {
+      fetchMock.mockRejectedValue(new Error('fetch failed'));
+      const ready = await isCdpAvailable(9222);
+      expect(ready).toBe(false);
+    });
+  });
+
+  describe('ensureChromeCdpReady', () => {
+    it('returns ready: true immediately if CDP is already listening', async () => {
+      fetchMock.mockResolvedValue({ ok: true });
+      const result = await ensureChromeCdpReady({
+        debugPort: 9222,
+        connectTimeoutMs: 1000,
+        cdpTimeoutMs: 2000,
+        autoLaunch: false
+      });
+      expect(result.ready).toBe(true);
+    });
+
+    it('returns ready: false when CDP is unavailable and autoLaunch is false', async () => {
+      fetchMock.mockRejectedValue(new Error('fetch failed'));
+      const result = await ensureChromeCdpReady({
+        debugPort: 9222,
+        connectTimeoutMs: 1000,
+        cdpTimeoutMs: 500,
+        autoLaunch: false
+      });
+      expect(result.ready).toBe(false);
+      expect(result.error).toContain('auto-launch disabled');
+    });
+
+    it('returns ready: false with clean error on timeout when CDP never responds', async () => {
+      fetchMock.mockRejectedValue(new Error('fetch failed'));
+      const result = await ensureChromeCdpReady({
+        debugPort: 9222,
+        connectTimeoutMs: 100,
+        cdpTimeoutMs: 600,
+        chromePath: process.execPath, // mock exe
+        autoLaunch: true
+      });
+      expect(result.ready).toBe(false);
+      expect(result.error).toContain('did not become ready within 600ms');
+    });
   });
 
   describe('createBrowserAdapter', () => {
@@ -121,9 +197,9 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
         ]
       });
 
-      const adapter = createBrowserAdapter();
+      const adapter = createBrowserAdapter({ autoLaunch: false });
       const pages = await adapter.getPages();
-      
+
       expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9222/json', expect.anything());
       expect(pages).toHaveLength(2);
       expect(pages[0].id).toBe('1');
@@ -132,7 +208,7 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
 
     it('throws error when Chrome is not reachable', async () => {
       fetchMock.mockRejectedValue(new Error('fetch failed'));
-      const adapter = createBrowserAdapter();
+      const adapter = createBrowserAdapter({ autoLaunch: false });
       await expect(adapter.getPages()).rejects.toThrow('fetch failed');
     });
   });
@@ -146,7 +222,7 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
         ]
       });
 
-      const adapter = createBrowserAdapter();
+      const adapter = createBrowserAdapter({ autoLaunch: false });
       const page = await adapter.getActivePage();
       expect(page).toBeDefined();
       expect(page?.id).toBe('2');
@@ -158,7 +234,7 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
         json: async () => []
       });
 
-      const adapter = createBrowserAdapter();
+      const adapter = createBrowserAdapter({ autoLaunch: false });
       const page = await adapter.getActivePage();
       expect(page).toBeNull();
     });
@@ -168,14 +244,19 @@ describe('BrowserAdapter and createBrowserAdapter', () => {
     let adapter: BrowserAdapter;
 
     beforeEach(async () => {
-      fetchMock.mockResolvedValue({
-        ok: true,
-        json: async () => [
-          { id: '1', type: 'page', title: 'Page', url: 'https://example.com', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/1' }
-        ]
+      fetchMock.mockImplementation((url: string) => {
+        if (url.includes('/version')) {
+          return Promise.resolve({ ok: true });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            { id: '1', type: 'page', title: 'Page', url: 'https://example.com', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/1' }
+          ]
+        });
       });
 
-      adapter = createBrowserAdapter();
+      adapter = createBrowserAdapter({ autoLaunch: false });
       await adapter.connect();
     });
 

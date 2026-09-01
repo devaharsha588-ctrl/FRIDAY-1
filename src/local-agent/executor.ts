@@ -33,7 +33,13 @@ let browserAdapter: BrowserAdapter | null = null;
 
 function getBrowserAdapter(env: AgentEnv): BrowserAdapter {
   if (!browserAdapter) {
-    browserAdapter = createBrowserAdapter({ debugPort: env.chromeDebugPort });
+    browserAdapter = createBrowserAdapter({
+      debugPort: env.chromeDebugPort,
+      cdpTimeoutMs: env.chromeCdpTimeoutMs,
+      profileDir: env.chromeProfileDir,
+      chromePath: env.chromeExecutablePath,
+      autoLaunch: true
+    });
   }
   return browserAdapter;
 }

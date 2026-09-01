@@ -15,7 +15,9 @@ const dummyEnv: AgentEnv = {
       processName: 'notepad.exe'
     }
   },
-  chromeDebugPort: 9222
+  chromeDebugPort: 9222,
+  chromeCdpTimeoutMs: 10000,
+  chromeProfileDir: resolve(testFilesRoot, 'chrome-profile')
 };
 
 describe('local agent executor', () => {
