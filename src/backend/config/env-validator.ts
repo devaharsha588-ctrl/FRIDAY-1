@@ -21,6 +21,12 @@ export type ValidatedBackendEnv = {
   maxTasksPerMinute: number;
   maxModelRequestsPerMinute: number;
   logLevel: string;
+  // Supabase configuration
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  supabaseServiceRoleKey: string | null; // backend-only, never exposed to clients
+  supabaseEnabled: boolean;
+  supabaseRequired: boolean;
 };
 
 function parseNumber(value: string | undefined, fallback: number, min = 0, max = Infinity): number {
@@ -36,6 +42,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (lower === 'true' || lower === '1' || lower === 'yes') return true;
   if (lower === 'false' || lower === '0' || lower === 'no') return false;
   return fallback;
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): ValidatedBackendEnv {
@@ -58,7 +73,7 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
     }
   }
 
-  // Fallback for legacy single-key setups: if no OPENROUTER_KEY_1..5 is set, check OPENROUTER_API_KEY
+  // Fallback for legacy single-key setups
   if (configuredKeySlots.length === 0) {
     const legacyKey = (env.OPENROUTER_DEFAULT_API_KEY || env.OPENROUTER_API_KEY)?.trim();
     if (legacyKey) {
@@ -66,6 +81,15 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
       configuredKeySlots.push('key_1');
     }
   }
+
+  // Supabase configuration — credentials stay server-side only
+  const rawSupabaseUrl = env.SUPABASE_URL?.trim().replace(/^["']|["']$/g, '') || null;
+  const rawAnonKey = env.SUPABASE_ANON_KEY?.trim().replace(/^["']|["']$/g, '') || null;
+  const rawServiceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim().replace(/^["']|["']$/g, '') || null;
+
+  const supabaseUrl = rawSupabaseUrl && isValidUrl(rawSupabaseUrl) ? rawSupabaseUrl : null;
+  const supabaseEnabled = Boolean(supabaseUrl && rawServiceKey);
+  const supabaseRequired = parseBoolean(env.SUPABASE_REQUIRED, false);
 
   const allowPaid = parseBoolean(env.FRIDAY_ALLOW_PAID_MODELS, false);
   const rawPolicy = env.FRIDAY_MODEL_POLICY?.toLowerCase().trim();
@@ -91,6 +115,11 @@ export function validateEnvironment(env: NodeJS.ProcessEnv = process.env): Valid
     maxMessageLength: parseNumber(env.FRIDAY_MAX_MESSAGE_LENGTH, 20000, 100),
     maxTasksPerMinute: parseNumber(env.FRIDAY_MAX_TASKS_PER_MINUTE, 30, 1),
     maxModelRequestsPerMinute: parseNumber(env.FRIDAY_MAX_MODEL_REQUESTS_PER_MINUTE, 60, 1),
-    logLevel: env.FRIDAY_LOG_LEVEL || 'info'
+    logLevel: env.FRIDAY_LOG_LEVEL || 'info',
+    supabaseUrl,
+    supabaseAnonKey: rawAnonKey,
+    supabaseServiceRoleKey: rawServiceKey,
+    supabaseEnabled,
+    supabaseRequired
   };
 }

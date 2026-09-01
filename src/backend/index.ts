@@ -13,12 +13,26 @@ import type { PublicModelProvider, StreamEvent } from '../shared/chat-contracts'
 import { ModelRouter } from './models/model-router';
 import { isFridayRole, type FridayRole } from './models/friday-key-roles';
 import { toPublicModelProvider } from './models/model-registry';
+import {
+  createServiceClient,
+  isSupabaseConfigured,
+  checkSupabaseHealth
+} from './database/supabase';
+import { MemoryRepository } from './database/repositories/memory-repository';
+import { PreferencesRepository } from './database/repositories/preferences-repository';
 
 loadLocalEnv();
 
 const env = readBackendEnv();
-const store = new ConversationStore();
-const taskStore = new TaskStore();
+
+// Initialize Supabase if configured
+const supabaseClient = isSupabaseConfigured(env) ? createServiceClient(env) : undefined;
+
+const store = new ConversationStore(undefined, supabaseClient);
+const taskStore = new TaskStore(supabaseClient);
+const memoryRepo = supabaseClient ? new MemoryRepository(supabaseClient) : null;
+const prefsRepo = supabaseClient ? new PreferencesRepository(supabaseClient) : null;
+
 const modelRouter = new ModelRouter(env);
 const keyManager = modelRouter.getKeyManager();
 const app = express();
@@ -51,14 +65,120 @@ const executeActionSchema = z.object({
   action: z.record(z.string(), z.unknown())
 });
 
-app.get('/api/health', (_req, res) => {
+// Cache Supabase health to avoid polling on every request
+let supabaseHealthCache: { status: 'healthy' | 'unavailable' | 'disabled'; checkedAt: number } = {
+  status: 'disabled',
+  checkedAt: 0
+};
+const HEALTH_CACHE_TTL_MS = 30_000;
+
+app.get('/api/health', async (_req, res) => {
+  // Refresh Supabase health check at most every 30s
+  const now = Date.now();
+  if (now - supabaseHealthCache.checkedAt > HEALTH_CACHE_TTL_MS) {
+    supabaseHealthCache = {
+      status: await checkSupabaseHealth(env),
+      checkedAt: now
+    };
+  }
+
   res.json({
     ok: true,
     service: 'friday-backend',
-    agentUrl: env.agentUrl,
+    supabase: supabaseHealthCache.status,
+    openrouter: Object.values(keyManager.getAllRoleStatuses()).some((r) => r.available) ? 'healthy' : 'unconfigured',
+    localAgent: env.agentUrl,
     defaultAgentToken: isUsingDefaultAgentToken(env)
   });
 });
+
+// ─── Memories ──────────────────────────────────────────────────────────────────
+
+const createMemorySchema = z.object({
+  content: z.string().min(1).max(5000),
+  category: z.string().max(100).optional(),
+  importance: z.number().int().min(0).max(100).optional()
+});
+
+app.get('/api/memories', async (req, res, next) => {
+  if (!memoryRepo) {
+    res.status(503).json({ error: 'Supabase is not configured. Memories require a Supabase connection.' });
+    return;
+  }
+  try {
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const memories = await memoryRepo.list(category, 50);
+    res.json({ memories });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/memories', async (req, res, next) => {
+  if (!memoryRepo) {
+    res.status(503).json({ error: 'Supabase is not configured. Memories require a Supabase connection.' });
+    return;
+  }
+  try {
+    const body = createMemorySchema.parse(req.body);
+    const memory = await memoryRepo.create(body.content, body.category, body.importance);
+    res.status(201).json({ memory });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/memories/:id', async (req, res, next) => {
+  if (!memoryRepo) {
+    res.status(503).json({ error: 'Supabase is not configured. Memories require a Supabase connection.' });
+    return;
+  }
+  try {
+    const deleted = await memoryRepo.delete(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Memory not found' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── Preferences ───────────────────────────────────────────────────────────────
+
+const setPreferenceSchema = z.object({
+  value: z.unknown()
+});
+
+app.get('/api/preferences', async (_req, res, next) => {
+  if (!prefsRepo) {
+    res.status(503).json({ error: 'Supabase is not configured. Preferences require a Supabase connection.' });
+    return;
+  }
+  try {
+    const preferences = await prefsRepo.getAll();
+    res.json({ preferences });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/preferences/:key', async (req, res, next) => {
+  if (!prefsRepo) {
+    res.status(503).json({ error: 'Supabase is not configured. Preferences require a Supabase connection.' });
+    return;
+  }
+  try {
+    const body = setPreferenceSchema.parse(req.body);
+    const pref = await prefsRepo.set(req.params.key, body.value);
+    res.json({ preference: pref });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
 
 app.get('/api/models/status', (_req, res) => {
   const roles = keyManager.getAllRoleStatuses();

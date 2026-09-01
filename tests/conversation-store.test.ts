@@ -62,4 +62,12 @@ describe('ConversationStore', () => {
     summaries = await store.listSummaries();
     expect(summaries.length).toBe(0);
   });
+  test('works in file-fallback mode when no Supabase client is provided', async () => {
+    // Default constructor (no Supabase) must behave identically to before
+    const store = new ConversationStore(testStorePath);
+    const { conversationId } = await store.appendMessage(undefined, 'user', 'Supabase disabled test');
+    const msgs = await store.getMessages(conversationId);
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].content).toBe('Supabase disabled test');
+  });
 });

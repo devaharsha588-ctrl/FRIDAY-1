@@ -2,22 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 
-export function loadLocalEnv(baseDir = process.cwd()): void {
-  const envPath = resolve(baseDir, '.env');
-  if (existsSync(envPath)) {
-    try {
-      loadEnvFile(envPath);
-    } catch {
-      parseEnvFallback(envPath);
-    }
-  }
+const ENV_FILES = ['.env', '.env.openrouter', '.env.supabase'] as const;
 
-  const openRouterEnvPath = resolve(baseDir, '.env.openrouter');
-  if (existsSync(openRouterEnvPath)) {
-    try {
-      loadEnvFile(openRouterEnvPath);
-    } catch {
-      parseEnvFallback(openRouterEnvPath);
+export function loadLocalEnv(baseDir = process.cwd()): void {
+  for (const filename of ENV_FILES) {
+    const filePath = resolve(baseDir, filename);
+    if (existsSync(filePath)) {
+      try {
+        loadEnvFile(filePath);
+      } catch {
+        parseEnvFallback(filePath);
+      }
     }
   }
 }

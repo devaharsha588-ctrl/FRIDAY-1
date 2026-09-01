@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TaskStore } from '../src/backend/memory/task-store';
 
 describe('TaskStore', () => {
@@ -101,4 +101,26 @@ describe('TaskStore', () => {
     store.clear();
     expect(store.list()).toHaveLength(0);
   });
+
+  it('works without Supabase configured (pure in-memory mode)', () => {
+    // No supabaseClient passed — must work identically to before
+    const store = new TaskStore();
+    const task = store.create('open browser', 'conv-1');
+    expect(task.id).toBeDefined();
+    expect(task.goal).toBe('open browser');
+    store.updateStatus(task.id, 'completed');
+    expect(store.get(task.id)?.status).toBe('completed');
+  });
+
+  it('keeps runtime task state serializable (no AbortControllers in task object)', () => {
+    const store = new TaskStore();
+    const task = store.create('long task');
+    // Task state must be JSON-serializable — no live objects stored on the task
+    const serialized = JSON.stringify(task);
+    const parsed = JSON.parse(serialized);
+    expect(parsed.id).toBe(task.id);
+    expect(parsed.goal).toBe('long task');
+    expect(task).not.toHaveProperty('abortController');
+  });
 });
+

@@ -6,6 +6,7 @@
 .env.*
 !.env.example
 !.env.openrouter.example
+!.env.supabase.example
 
 *.pem
 *.key
